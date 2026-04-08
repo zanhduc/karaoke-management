@@ -1,6 +1,24 @@
 var ACCOUNT_SHEET = "Tài khoản";
 var STAFF_SHEET = "Tiếp viên";
 var PRODUCT_SHEET = "Hàng hoá";
+var ROOM_SHEET = "Phòng";
+
+// Map headers for sheets that may be auto-created via getSheet().
+// Each getXSheet() also ensures headers exist even if the sheet already existed.
+var SHEET_HEADERS = {
+  "Tài khoản": ["ID", "Tài khoản", "Mật khẩu", "Role", "Tên"],
+  "Tiếp viên": ["ID", "Tên", "SĐT", "Trạng thái", "RoomID", "Giá/giờ"],
+  "Hàng hoá": ["ID", "Tên", "Đơn vị", "Giá", "Số lượng"],
+  "Phòng": [
+    "ID",
+    "Tên phòng",
+    "Loại",
+    "Giá/giờ",
+    "Trạng thái",
+    "Thời gian bắt đầu",
+    "Order ID hiện tại"
+  ]
+};
 
 var ACCOUNT_COL = {
   ID: 1,
@@ -23,7 +41,9 @@ var ROOM_COL = {
   NAME: 2,
   TYPE: 3,
   PRICE: 4,
-  STATUS: 5
+  STATUS: 5,
+  START_TIME: 6,
+  CURRENT_ORDER_ID: 7
 };
 
 var PRODUCT_COL = {
@@ -72,7 +92,7 @@ function getSheet(sheetName, createIfNotExist) {
     // Chuẩn hóa tên sheet để tìm header tương ứng trong object SHEET_HEADERS
     // Lưu ý: SHEET_HEADERS key có thể không khớp nếu tên sheet có dấu đặc biệt
     // Tạm thời dùng tên gốc sheetName
-    if (SHEET_HEADERS[sheetName]) {
+    if (typeof SHEET_HEADERS !== "undefined" && SHEET_HEADERS[sheetName]) {
       sheet.appendRow(SHEET_HEADERS[sheetName]);
     }
   }
@@ -201,20 +221,6 @@ function getCurrentUser() {
   return checkSession();
 }
 
-// ============ ROUTES ============
-
-function doGet(e) {
-  return HtmlService.createTemplateFromFile("index")
-    .evaluate()
-    .setTitle("Quản Lý Kho")
-    .addMetaTag("viewport", "width=device-width, initial-scale=1")
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
-}
-
 
 // ===== STAFF(tiếp viên) =====
 
@@ -282,13 +288,14 @@ function deleteStaff(id) {
 
 // gán vào phòng
 function assignStaffToRoom(staffId, roomId) {
+  if (!staffId) throw new Error("staffId không hợp lệ");
   var sheet = getStaffSheet();
   var data = sheet.getDataRange().getValues();
 
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(staffId)) {
-      sheet.getRange(i + 1, 4).setValue("busy");
-      sheet.getRange(i + 1, 5).setValue(roomId);
+      sheet.getRange(i + 1, STAFF_COL.STATUS).setValue("busy");
+      sheet.getRange(i + 1, STAFF_COL.ROOM_ID).setValue(roomId || "");
       break;
     }
   }
@@ -296,13 +303,14 @@ function assignStaffToRoom(staffId, roomId) {
 
 // rời phòng
 function releaseStaff(staffId) {
+  if (!staffId) throw new Error("staffId không hợp lệ");
   var sheet = getStaffSheet();
   var data = sheet.getDataRange().getValues();
 
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(staffId)) {
-      sheet.getRange(i + 1, 4).setValue("available");
-      sheet.getRange(i + 1, 5).setValue("");
+      sheet.getRange(i + 1, STAFF_COL.STATUS).setValue("available");
+      sheet.getRange(i + 1, STAFF_COL.ROOM_ID).setValue("");
       break;
     }
   }
@@ -313,11 +321,18 @@ function releaseStaff(staffId) {
 function getRoomSheet() {
   var s = getSheet(ROOM_SHEET, true);
   if (s.getLastRow() === 0) {
-    s.appendRow(["ID", "Tên phòng", "Loại", "Giá", "Trạng thái"]);
+    s.appendRow([
+      "ID",
+      "Tên phòng",
+      "Loại",
+      "Giá/giờ",
+      "Trạng thái",
+      "Thời gian bắt đầu",
+      "Order ID hiện tại"
+    ]);
   }
   return s;
 }
-
 function getRooms() {
   var data = getRoomSheet().getDataRange().getValues();
   var res = [];
@@ -327,20 +342,56 @@ function getRooms() {
       id: data[i][0],
       name: data[i][1],
       type: data[i][2],
-      price: data[i][3],
-      status: data[i][4] || "empty"
+      price_per_hour: data[i][3],
+      status: data[i][4] || "available",
+      start_time: data[i][5] || "",
+      current_order_id: data[i][6] || ""
     });
   }
   return res;
 }
 
-function updateRoomStatus(roomId, status) {
+function startRoom(roomId, orderId) {
+  if (!roomId) throw new Error("roomId không hợp lệ");
+  if (!orderId) throw new Error("orderId không hợp lệ");
   var sheet = getRoomSheet();
   var data = sheet.getDataRange().getValues();
 
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(roomId)) {
-      sheet.getRange(i + 1, 5).setValue(status);
+      var currentStatus = data[i][ROOM_COL.STATUS - 1] || "available";
+      if (String(currentStatus) !== "available") {
+        throw new Error("Phòng đang được sử dụng!");
+      }
+      sheet.getRange(i + 1, ROOM_COL.STATUS).setValue("occupied");
+      sheet.getRange(i + 1, ROOM_COL.START_TIME).setValue(new Date());
+      sheet.getRange(i + 1, ROOM_COL.CURRENT_ORDER_ID).setValue(orderId);
+      break;
+    }
+  }
+}
+function endRoom(roomId) {
+  if (!roomId) throw new Error("roomId không hợp lệ");
+  var sheet = getRoomSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(roomId)) {
+      sheet.getRange(i + 1, ROOM_COL.STATUS).setValue("available");
+      sheet.getRange(i + 1, ROOM_COL.START_TIME).setValue("");
+      sheet.getRange(i + 1, ROOM_COL.CURRENT_ORDER_ID).setValue("");
+      break;
+    }
+  }
+}
+function updateRoomStatus(roomId, status) {
+  if (!roomId) throw new Error("roomId không hợp lệ");
+  var sheet = getRoomSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(roomId)) {
+      sheet.getRange(i + 1, ROOM_COL.STATUS).setValue(status);
       break;
     }
   }
@@ -405,4 +456,17 @@ function deleteProduct(id) {
       break;
     }
   }
+}
+// ============ ROUTES ============
+
+function doGet(e) {
+  return HtmlService.createTemplateFromFile("index")
+    .evaluate()
+    .setTitle("Quản Lý Kho")
+    .addMetaTag("viewport", "width=device-width, initial-scale=1")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }

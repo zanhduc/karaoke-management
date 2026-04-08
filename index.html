@@ -48,6 +48,8 @@
 </head>
 
 <body>
+  <?!= include('staffComponent'); ?>
+  <?!= include('productComponent'); ?>
   <script type="text/babel">
     // ============ SHARED REACT HOOKS ============
     window.ReactShared = {
@@ -346,7 +348,31 @@
     }
     function MainApp() {
       const { user, logout } = useAuth();
-      const [page, setPage] = React.useState("staff");
+
+      const getInitialPage = () => {
+        try {
+          const p = new URLSearchParams(window.location.search).get("page");
+          return p === "product" ? "product" : "staff";
+        } catch (e) {
+          return "staff";
+        }
+      };
+
+      const [page, setPage] = React.useState(getInitialPage);
+
+      const setPageAndUrl = (next) => {
+        setPage(next);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set("page", next);
+          window.history.replaceState({}, "", url.toString());
+        } catch (e) {
+          // ignore
+        }
+      };
+
+      const StaffPage = window.StaffPage;
+      const ProductPage = window.ProductPage;
 
       return (
         <div className="flex h-screen bg-blue-50">
@@ -357,14 +383,14 @@
             </h2>
 
             <button
-              onClick={() => setPage("staff")}
+              onClick={() => setPageAndUrl("staff")}
               className="p-2 text-left hover:bg-blue-100 rounded"
             >
               👩‍💼 Nhân viên
             </button>
 
             <button
-              onClick={() => setPage("product")}
+              onClick={() => setPageAndUrl("product")}
               className="p-2 text-left hover:bg-blue-100 rounded"
             >
               🛒 Hàng hoá
