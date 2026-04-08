@@ -11,22 +11,16 @@ var SHEET_HEADERS = {
   "Tài khoản": ["ID", "Tài khoản", "Mật khẩu", "Role", "Tên"],
   "Tiếp viên": ["ID", "Tên", "SĐT", "Trạng thái", "RoomID", "Giá/giờ"],
   "Hàng hoá": ["ID", "Tên", "Đơn vị", "Giá", "Số lượng"],
-  "Phòng": [
+  Phòng: [
     "ID",
     "Tên phòng",
     "Loại",
     "Giá/giờ",
     "Trạng thái",
     "Thời gian bắt đầu",
-    "Order ID hiện tại"
+    "Order ID hiện tại",
   ],
-  "Log": [
-    "Ngày giờ",
-    "Người dùng",
-    "Thay đổi",
-    "Trạng thái",
-    "Thông báo lỗi"
-  ]
+  Log: ["Ngày giờ", "Người dùng", "Thay đổi", "Trạng thái", "Thông báo lỗi"],
 };
 
 /** Cột sheet Log (1-based) — khớp hàng tiêu đề bạn đã tạo */
@@ -35,7 +29,7 @@ var LOG_COL = {
   USER: 2,
   CHANGE: 3,
   STATUS: 4,
-  ERROR: 5
+  ERROR: 5,
 };
 
 var ACCOUNT_COL = {
@@ -43,7 +37,7 @@ var ACCOUNT_COL = {
   USERNAME: 2,
   PASSWORD: 3,
   ROLE: 4,
-  NAME: 5
+  NAME: 5,
 };
 
 var STAFF_COL = {
@@ -52,7 +46,7 @@ var STAFF_COL = {
   PHONE: 3,
   STATUS: 4,
   ROOM_ID: 5,
-  PRICE: 6
+  PRICE: 6,
 };
 var ROOM_COL = {
   ID: 1,
@@ -61,7 +55,7 @@ var ROOM_COL = {
   PRICE: 4,
   STATUS: 5,
   START_TIME: 6,
-  CURRENT_ORDER_ID: 7
+  CURRENT_ORDER_ID: 7,
 };
 
 var PRODUCT_COL = {
@@ -187,7 +181,11 @@ function login(username, password) {
     userProps.setProperty("loginTime", new Date().toISOString());
 
     Logger.log("Login success: " + user.username + " - Role: " + user.role);
-    auditLog("Đăng nhập thành công — " + user.username + " (" + user.role + ")", "SUCCESS", "");
+    auditLog(
+      "Đăng nhập thành công — " + user.username + " (" + user.role + ")",
+      "SUCCESS",
+      "",
+    );
     return {
       success: true,
       role: user.role,
@@ -197,7 +195,11 @@ function login(username, password) {
   }
 
   Logger.log("Login failed: " + uname);
-  auditLog("Đăng nhập thất bại — tài khoản: " + (uname || "(trống)"), "FAIL", "Sai tên đăng nhập hoặc mật khẩu!");
+  auditLog(
+    "Đăng nhập thất bại — tài khoản: " + (uname || "(trống)"),
+    "FAIL",
+    "Sai tên đăng nhập hoặc mật khẩu!",
+  );
   return { success: false, message: "Sai tên đăng nhập hoặc mật khẩu!" };
 }
 
@@ -266,16 +268,17 @@ function auditLog(changeDescription, status, errorMessage) {
     var props = PropertiesService.getUserProperties();
     var username = trimVal(props.getProperty("loggedInUser"));
     var role = trimVal(props.getProperty("userRole"));
-    var displayUser = (username || role)
-      ? (username || "—") + (role ? " (" + role + ")" : "")
-      : "Chưa đăng nhập / hệ thống";
+    var displayUser =
+      username || role
+        ? (username || "—") + (role ? " (" + role + ")" : "")
+        : "Chưa đăng nhập / hệ thống";
 
     sheet.appendRow([
       new Date(),
       displayUser,
       String(changeDescription || ""),
       status === "FAIL" ? "FAIL" : "SUCCESS",
-      errorMessage != null ? String(errorMessage) : ""
+      errorMessage != null ? String(errorMessage) : "",
     ]);
   } catch (e) {
     Logger.log("auditLog error: " + e);
@@ -306,12 +309,11 @@ function getAuditLogs(optLimit) {
       user: row[LOG_COL.USER - 1],
       change: row[LOG_COL.CHANGE - 1],
       status: row[LOG_COL.STATUS - 1],
-      error: row[LOG_COL.ERROR - 1]
+      error: row[LOG_COL.ERROR - 1],
     });
   }
   return res;
 }
-
 
 // ===== STAFF(tiếp viên) =====
 
@@ -334,7 +336,7 @@ function getStaffs() {
       phone: data[i][2],
       status: data[i][3] || "available",
       current_room_id: data[i][4] || "",
-      price_per_hour: data[i][5] || 0
+      price_per_hour: data[i][5] || 0,
     });
   }
   return res;
@@ -348,15 +350,23 @@ function addStaff(s) {
       s.phone,
       "available",
       "",
-      s.price_per_hour || 0
+      s.price_per_hour || 0,
     ]);
     auditLog(
-      "Tiếp viên [CREATE]: Thêm — " + (s.name || "(không tên)") + " (ID " + s.id + ")",
+      "Tiếp viên [CREATE]: Thêm — " +
+        (s.name || "(không tên)") +
+        " (ID " +
+        s.id +
+        ")",
       "SUCCESS",
-      ""
+      "",
     );
   } catch (e) {
-    auditLog("Tiếp viên [CREATE]: Thêm tiếp viên", "FAIL", String(e.message || e));
+    auditLog(
+      "Tiếp viên [CREATE]: Thêm tiếp viên",
+      "FAIL",
+      String(e.message || e),
+    );
     throw e;
   }
 }
@@ -378,19 +388,27 @@ function updateStaff(s) {
     }
     if (found) {
       auditLog(
-        "Tiếp viên [UPDATE]: Sửa ID " + s.id + " — " + (s.name || "") + " / SĐT / giá giờ",
+        "Tiếp viên [UPDATE]: Sửa ID " +
+          s.id +
+          " — " +
+          (s.name || "") +
+          " / SĐT / giá giờ",
         "SUCCESS",
-        ""
+        "",
       );
     } else {
       auditLog(
         "Tiếp viên [UPDATE]: ID " + s.id,
         "FAIL",
-        "Không tìm thấy bản ghi trên sheet"
+        "Không tìm thấy bản ghi trên sheet",
       );
     }
   } catch (e) {
-    auditLog("Tiếp viên [UPDATE]: ID " + (s && s.id), "FAIL", String(e.message || e));
+    auditLog(
+      "Tiếp viên [UPDATE]: ID " + (s && s.id),
+      "FAIL",
+      String(e.message || e),
+    );
     throw e;
   }
 }
@@ -411,7 +429,11 @@ function deleteStaff(id) {
     if (found) {
       auditLog("Tiếp viên [DELETE]: Xoá ID " + id, "SUCCESS", "");
     } else {
-      auditLog("Tiếp viên [DELETE]: ID " + id, "FAIL", "Không tìm thấy bản ghi");
+      auditLog(
+        "Tiếp viên [DELETE]: ID " + id,
+        "FAIL",
+        "Không tìm thấy bản ghi",
+      );
     }
   } catch (e) {
     auditLog("Tiếp viên [DELETE]: ID " + id, "FAIL", String(e.message || e));
@@ -437,15 +459,26 @@ function assignStaffToRoom(staffId, roomId) {
     }
     if (found) {
       auditLog(
-        "Tiếp viên [ASSIGN]: Gán staff " + staffId + " → phòng " + (roomId || "(trống)"),
+        "Tiếp viên [ASSIGN]: Gán staff " +
+          staffId +
+          " → phòng " +
+          (roomId || "(trống)"),
         "SUCCESS",
-        ""
+        "",
       );
     } else {
-      auditLog("Tiếp viên [ASSIGN]: staff " + staffId, "FAIL", "Không tìm thấy tiếp viên");
+      auditLog(
+        "Tiếp viên [ASSIGN]: staff " + staffId,
+        "FAIL",
+        "Không tìm thấy tiếp viên",
+      );
     }
   } catch (e) {
-    auditLog("Tiếp viên [ASSIGN]: staff " + staffId, "FAIL", String(e.message || e));
+    auditLog(
+      "Tiếp viên [ASSIGN]: staff " + staffId,
+      "FAIL",
+      String(e.message || e),
+    );
     throw e;
   }
 }
@@ -469,10 +502,18 @@ function releaseStaff(staffId) {
     if (found) {
       auditLog("Tiếp viên [RELEASE]: Nhả staff " + staffId, "SUCCESS", "");
     } else {
-      auditLog("Tiếp viên [RELEASE]: staff " + staffId, "FAIL", "Không tìm thấy tiếp viên");
+      auditLog(
+        "Tiếp viên [RELEASE]: staff " + staffId,
+        "FAIL",
+        "Không tìm thấy tiếp viên",
+      );
     }
   } catch (e) {
-    auditLog("Tiếp viên [RELEASE]: staff " + staffId, "FAIL", String(e.message || e));
+    auditLog(
+      "Tiếp viên [RELEASE]: staff " + staffId,
+      "FAIL",
+      String(e.message || e),
+    );
     throw e;
   }
 }
@@ -489,7 +530,7 @@ function getRoomSheet() {
       "Giá/giờ",
       "Trạng thái",
       "Thời gian bắt đầu",
-      "Order ID hiện tại"
+      "Order ID hiện tại",
     ]);
   }
   return s;
@@ -506,8 +547,10 @@ function getRooms() {
       type: row[ROOM_COL.TYPE - 1],
       price_per_hour: Number(row[ROOM_COL.PRICE - 1]) || 0,
       status: String(row[ROOM_COL.STATUS - 1] || "available").toLowerCase(),
-      start_time: row[ROOM_COL.START_TIME - 1] ? new Date(row[ROOM_COL.START_TIME - 1]).toISOString() : null,
-      current_order_id: row[ROOM_COL.CURRENT_ORDER_ID - 1] || ""
+      start_time: row[ROOM_COL.START_TIME - 1]
+        ? new Date(row[ROOM_COL.START_TIME - 1]).toISOString()
+        : null,
+      current_order_id: row[ROOM_COL.CURRENT_ORDER_ID - 1] || "",
     });
   }
   return res;
@@ -523,12 +566,16 @@ function addRoom(r) {
       r.price_per_hour != null ? r.price_per_hour : 0,
       r.status || "available",
       r.start_time ? new Date(r.start_time) : "",
-      r.current_order_id || ""
+      r.current_order_id || "",
     ]);
     auditLog(
-      "Phòng [CREATE]: Thêm — " + (r.name || "(không tên)") + " (ID " + r.id + ")",
+      "Phòng [CREATE]: Thêm — " +
+        (r.name || "(không tên)") +
+        " (ID " +
+        r.id +
+        ")",
       "SUCCESS",
-      ""
+      "",
     );
   } catch (e) {
     auditLog("Phòng [CREATE]: Thêm phòng", "FAIL", String(e.message || e));
@@ -546,8 +593,10 @@ function updateRoom(r) {
 
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][ROOM_COL.ID - 1]) === String(r.id)) {
-        if (r.name !== undefined) sheet.getRange(i + 1, ROOM_COL.NAME).setValue(r.name);
-        if (r.type !== undefined) sheet.getRange(i + 1, ROOM_COL.TYPE).setValue(r.type);
+        if (r.name !== undefined)
+          sheet.getRange(i + 1, ROOM_COL.NAME).setValue(r.name);
+        if (r.type !== undefined)
+          sheet.getRange(i + 1, ROOM_COL.TYPE).setValue(r.type);
         if (r.price_per_hour !== undefined)
           sheet.getRange(i + 1, ROOM_COL.PRICE).setValue(r.price_per_hour);
         found = true;
@@ -558,7 +607,7 @@ function updateRoom(r) {
       auditLog(
         "Phòng [UPDATE]: Sửa ID " + r.id + " — tên/loại/giá",
         "SUCCESS",
-        ""
+        "",
       );
     } else {
       auditLog("Phòng [UPDATE]: ID " + r.id, "FAIL", "Không tìm thấy phòng");
@@ -614,7 +663,7 @@ function startRoom(roomId, orderId) {
           auditLog(
             "Phòng [START]: Phòng " + roomId + ", order " + orderId,
             "FAIL",
-            "Phòng đang được sử dụng!"
+            "Phòng đang được sử dụng!",
           );
           throw new Error("Phòng đang được sử dụng!");
         }
@@ -624,7 +673,7 @@ function startRoom(roomId, orderId) {
         auditLog(
           "Phòng [START]: Mở phòng " + roomId + ", order " + orderId,
           "SUCCESS",
-          ""
+          "",
         );
         break;
       }
@@ -635,7 +684,10 @@ function startRoom(roomId, orderId) {
     }
   } catch (e) {
     var msg = String(e.message || e);
-    if (msg.indexOf("Phòng đang được sử dụng") === -1 && msg.indexOf("Không tìm thấy phòng") === -1) {
+    if (
+      msg.indexOf("Phòng đang được sử dụng") === -1 &&
+      msg.indexOf("Không tìm thấy phòng") === -1
+    ) {
       auditLog("Phòng [START]: " + roomId, "FAIL", msg);
     }
     throw e;
@@ -685,7 +737,7 @@ function updateRoomStatus(roomId, status) {
       auditLog(
         "Phòng [STATUS]: Phòng " + roomId + " → " + status,
         "SUCCESS",
-        ""
+        "",
       );
     } else {
       auditLog("Phòng [STATUS]: " + roomId, "FAIL", "Không tìm thấy phòng");
@@ -723,16 +775,15 @@ function getProducts() {
 
 function addProduct(p) {
   try {
-    getProductSheet().appendRow([
-      p.id,
-      p.name,
-      p.unit || "",
-      p.price || 0,
-    ]);
+    getProductSheet().appendRow([p.id, p.name, p.unit || "", p.price || 0]);
     auditLog(
-      "Hàng hoá [CREATE]: Thêm — " + (p.name || "(không tên)") + " (ID " + p.id + ")",
+      "Hàng hoá [CREATE]: Thêm — " +
+        (p.name || "(không tên)") +
+        " (ID " +
+        p.id +
+        ")",
       "SUCCESS",
-      ""
+      "",
     );
   } catch (e) {
     auditLog("Hàng hoá [CREATE]: Thêm hàng", "FAIL", String(e.message || e));
@@ -758,13 +809,17 @@ function updateProduct(p) {
       auditLog(
         "Hàng hoá [UPDATE]: Sửa ID " + p.id + " — " + (p.name || "") + " / giá",
         "SUCCESS",
-        ""
+        "",
       );
     } else {
       auditLog("Hàng hoá [UPDATE]: ID " + p.id, "FAIL", "Không tìm thấy hàng");
     }
   } catch (e) {
-    auditLog("Hàng hoá [UPDATE]: ID " + (p && p.id), "FAIL", String(e.message || e));
+    auditLog(
+      "Hàng hoá [UPDATE]: ID " + (p && p.id),
+      "FAIL",
+      String(e.message || e),
+    );
     throw e;
   }
 }
@@ -792,6 +847,65 @@ function deleteProduct(id) {
     throw e;
   }
 }
+
+// ================== DASHBOARD STATISTICS ==================
+
+/**
+ * Thống kê phòng theo trạng thái
+ */
+function getRoomStatistics() {
+  var rooms = getRooms();
+  var stats = {
+    total: rooms.length,
+    available: 0,
+    occupied: 0,
+    cleaning: 0,
+  };
+
+  for (var i = 0; i < rooms.length; i++) {
+    var status = String(rooms[i].status || "available").toLowerCase();
+    if (status === "occupied") {
+      stats.occupied++;
+    } else if (status === "cleaning") {
+      stats.cleaning++;
+    } else {
+      stats.available++;
+    }
+  }
+
+  return stats;
+}
+
+/**
+ * Tổng số tiếp viên
+ */
+function getTotalStaffCount() {
+  return getStaffs().length;
+}
+
+/**
+ * Thống kê tiếp viên theo trạng thái
+ */
+function getStaffStatistics() {
+  var staffs = getStaffs();
+  var stats = {
+    total: staffs.length,
+    available: 0,
+    busy: 0,
+  };
+
+  for (var i = 0; i < staffs.length; i++) {
+    var status = String(staffs[i].status || "available").toLowerCase();
+    if (status === "busy") {
+      stats.busy++;
+    } else {
+      stats.available++;
+    }
+  }
+
+  return stats;
+}
+
 // ============ ROUTES ============
 
 function doGet(e) {

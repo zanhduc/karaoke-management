@@ -51,6 +51,7 @@
   <?!= include('staffComponent'); ?>
   <?!= include('productComponent'); ?>
   <?!= include('roomComponent'); ?>
+  <?!= include('dashboardComponent'); ?>
   <script type="text/babel">
     // ============ SHARED REACT HOOKS ============
     window.ReactShared = {
@@ -355,6 +356,7 @@
           const p = new URLSearchParams(window.location.search).get("page");
           if (p === "product") return "product";
           if (p === "room") return "room";
+          if (p === "dashboard" && user.role === "admin") return "dashboard";
           return "staff";
         } catch (e) {
           return "staff";
@@ -377,8 +379,20 @@
       const StaffPage = window.StaffPage;
       const ProductPage = window.ProductPage;
       const RoomPage = window.RoomPage;
+      const DashboardPage = window.DashboardPage;
 
       const renderPage = () => {
+        if (page === "dashboard") {
+          if (!DashboardPage) {
+            return (
+              <div className="p-4 text-red-600">
+                Lỗi: chưa tải được DashboardPage. Kiểm tra file{" "}
+                <code>dashboardComponent.html</code> và include trong index.
+              </div>
+            );
+          }
+          return <DashboardPage />;
+        }
         if (page === "staff") {
           if (!StaffPage) {
             return (
@@ -422,30 +436,58 @@
               Quản lý kho
             </h2>
 
+            {user.role === "admin" && (
+              <button
+                onClick={() => setPageAndUrl("dashboard")}
+                className={`p-2 text-left rounded mb-2 transition-colors ${
+                  page === "dashboard"
+                    ? "bg-indigo-100 text-indigo-700 font-semibold"
+                    : "hover:bg-blue-100"
+                }`}
+              >
+                📊 Dashboard
+              </button>
+            )}
+
             <button
               onClick={() => setPageAndUrl("staff")}
-              className="p-2 text-left hover:bg-blue-100 rounded"
+              className={`p-2 text-left rounded mb-2 transition-colors ${
+                page === "staff"
+                  ? "bg-blue-100 text-blue-700 font-semibold"
+                  : "hover:bg-blue-100"
+              }`}
             >
               👩‍💼 Nhân viên
             </button>
 
             <button
               onClick={() => setPageAndUrl("product")}
-              className="p-2 text-left hover:bg-blue-100 rounded"
+              className={`p-2 text-left rounded mb-2 transition-colors ${
+                page === "product"
+                  ? "bg-blue-100 text-blue-700 font-semibold"
+                  : "hover:bg-blue-100"
+              }`}
             >
               🛒 Hàng hoá
             </button>
             <button
               onClick={() => setPageAndUrl("room")}
-              className="p-2 text-left hover:bg-blue-100 rounded"
+              className={`p-2 text-left rounded mb-2 transition-colors ${
+                page === "room"
+                  ? "bg-blue-100 text-blue-700 font-semibold"
+                  : "hover:bg-blue-100"
+              }`}
             >
               🏠 Phòng
             </button>
 
             <div className="mt-auto">
+              <p className="text-xs text-gray-500 mb-3">
+                Logged as: <span className="font-semibold">{user.name}</span>
+              </p>
               <button
                 onClick={logout}
-                className="w-full bg-red-500 text-white p-2 rounded mt-4"
+                className="w-full bg-red-500 text-white p-2 rounded mt-4 hover:bg-red-600 transition-colors"
               >
                 Đăng xuất
               </button>
