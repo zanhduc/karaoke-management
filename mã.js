@@ -1,11 +1,37 @@
 var ACCOUNT_SHEET = "Tài khoản";
+var STAFF_SHEET = "Tiếp viên";
+var PRODUCT_SHEET = "Hàng hoá";
 
 var ACCOUNT_COL = {
   ID: 1,
   USERNAME: 2,
   PASSWORD: 3,
   ROLE: 4,
-  NAME: 5,
+  NAME: 5
+};
+
+var STAFF_COL = {
+  ID: 1,
+  NAME: 2,
+  PHONE: 3,
+  STATUS: 4,
+  ROOM_ID: 5,
+  PRICE: 6
+};
+var ROOM_COL = {
+  ID: 1,
+  NAME: 2,
+  TYPE: 3,
+  PRICE: 4,
+  STATUS: 5
+};
+
+var PRODUCT_COL = {
+  ID: 1,
+  NAME: 2,
+  UNIT: 3,
+  PRICE: 4,
+  QUANTITY: 5
 };
 
 var _cachedSpreadsheet = null;
@@ -187,4 +213,196 @@ function doGet(e) {
 
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+
+// ===== STAFF(tiếp viên) =====
+
+function getStaffSheet() {
+  var s = getSheet(STAFF_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow(["ID", "Tên", "SĐT", "Trạng thái", "RoomID", "Giá/giờ"]);
+  }
+  return s;
+}
+
+function getStaffs() {
+  var data = getStaffSheet().getDataRange().getValues();
+  var res = [];
+
+  for (var i = 1; i < data.length; i++) {
+    res.push({
+      id: data[i][0],
+      name: data[i][1],
+      phone: data[i][2],
+      status: data[i][3] || "available",
+      current_room_id: data[i][4] || "",
+      price_per_hour: data[i][5] || 0
+    });
+  }
+  return res;
+}
+
+function addStaff(s) {
+  getStaffSheet().appendRow([
+    s.id,
+    s.name,
+    s.phone,
+    "available",
+    "",
+    s.price_per_hour || 0
+  ]);
+}
+
+function updateStaff(s) {
+  var sheet = getStaffSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(s.id)) {
+      sheet.getRange(i + 1, 2).setValue(s.name);
+      sheet.getRange(i + 1, 3).setValue(s.phone);
+      sheet.getRange(i + 1, 6).setValue(s.price_per_hour);
+      break;
+    }
+  }
+}
+
+function deleteStaff(id) {
+  var sheet = getStaffSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      break;
+    }
+  }
+}
+
+// gán vào phòng
+function assignStaffToRoom(staffId, roomId) {
+  var sheet = getStaffSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(staffId)) {
+      sheet.getRange(i + 1, 4).setValue("busy");
+      sheet.getRange(i + 1, 5).setValue(roomId);
+      break;
+    }
+  }
+}
+
+// rời phòng
+function releaseStaff(staffId) {
+  var sheet = getStaffSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(staffId)) {
+      sheet.getRange(i + 1, 4).setValue("available");
+      sheet.getRange(i + 1, 5).setValue("");
+      break;
+    }
+  }
+}
+
+// ================== ROOM ==================
+
+function getRoomSheet() {
+  var s = getSheet(ROOM_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow(["ID", "Tên phòng", "Loại", "Giá", "Trạng thái"]);
+  }
+  return s;
+}
+
+function getRooms() {
+  var data = getRoomSheet().getDataRange().getValues();
+  var res = [];
+
+  for (var i = 1; i < data.length; i++) {
+    res.push({
+      id: data[i][0],
+      name: data[i][1],
+      type: data[i][2],
+      price: data[i][3],
+      status: data[i][4] || "empty"
+    });
+  }
+  return res;
+}
+
+function updateRoomStatus(roomId, status) {
+  var sheet = getRoomSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(roomId)) {
+      sheet.getRange(i + 1, 5).setValue(status);
+      break;
+    }
+  }
+}
+
+// ================== PRODUCT ==================
+
+function getProductSheet() {
+  var s = getSheet(PRODUCT_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow(["ID", "Tên", "Đơn vị", "Giá", "Số lượng"]);
+  }
+  return s;
+}
+
+function getProducts() {
+  var data = getProductSheet().getDataRange().getValues();
+  var res = [];
+
+  for (var i = 1; i < data.length; i++) {
+    res.push({
+      id: data[i][0],
+      name: data[i][1],
+      unit: data[i][2],
+      price: data[i][3],
+      quantity: data[i][4]
+    });
+  }
+  return res;
+}
+
+function addProduct(p) {
+  getProductSheet().appendRow([
+    p.id,
+    p.name,
+    p.unit || "",
+    p.price || 0,
+    p.quantity || 0
+  ]);
+}
+
+function updateProduct(p) {
+  var sheet = getProductSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(p.id)) {
+      sheet.getRange(i + 1, 2).setValue(p.name);
+      sheet.getRange(i + 1, 4).setValue(p.price);
+      break;
+    }
+  }
+}
+
+function deleteProduct(id) {
+  var sheet = getProductSheet();
+  var data = sheet.getDataRange().getValues();
+
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      break;
+    }
+  }
 }

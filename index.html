@@ -1,376 +1,410 @@
 <!doctype html>
 <html lang="vi">
-  <head>
-    <base target="_top" />
-    <meta charset="utf-8" />
-    <title>Đăng Nhập Quản Lý Kho</title>
 
-    <script
-      crossorigin
-      src="https://unpkg.com/react@18/umd/react.production.min.js"
-    ></script>
-    <script
-      crossorigin
-      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
-    ></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com/3.3.5?plugins=forms,typography"></script>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      href="https://fonts.googleapis.com/icon?family=Material+Icons+Round"
-      rel="stylesheet"
-    />
+<head>
+  <base target="_top" />
+  <meta charset="utf-8" />
+  <title>Đăng Nhập Quản Lý Kho</title>
 
-    <script>
-      tailwind.config = {
-        darkMode: "class",
-        theme: {
-          extend: {
-            colors: {
-              primary: "#6366f1",
-              "background-light": "#f8fafc",
-              "background-dark": "#0b1220",
-            },
-            fontFamily: { display: ["Inter", "sans-serif"] },
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.3.5?plugins=forms,typography"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#6366f1",
+            "background-light": "#f8fafc",
+            "background-dark": "#0b1220",
           },
+          fontFamily: { display: ["Inter", "sans-serif"] },
         },
-      };
-    </script>
+      },
+    };
+  </script>
 
-    <style>
-      body {
-        font-family: "Inter", sans-serif;
-        background: #f8fafc;
-        margin: 0;
-        padding: 0;
-      }
+  <style>
+    body {
+      font-family: "Inter", sans-serif;
+      background: #f8fafc;
+      margin: 0;
+      padding: 0;
+    }
 
-      /* Đã comment các CSS không liên quan đến Login (CSS bảng, scrollbar, page-container...) */
-      /*
+    /* Đã comment các CSS không liên quan đến Login (CSS bảng, scrollbar, page-container...) */
+    /*
       .page-container { display: none; }
       .page-container.active { display: block; animation: fadeIn 0.3s; }
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       ...
       */
-    </style>
-  </head>
-  <body>
-    <script type="text/babel">
-      // ============ SHARED REACT HOOKS ============
-      window.ReactShared = {
-        useState: React.useState,
-        useEffect: React.useEffect,
-        useRef: React.useRef,
-        useMemo: React.useMemo,
-        useCallback: React.useCallback,
-      };
+  </style>
+</head>
 
-      // ============ AUTH CONTEXT ============
-      const AuthContext = React.createContext(null);
+<body>
+  <script type="text/babel">
+    // ============ SHARED REACT HOOKS ============
+    window.ReactShared = {
+      useState: React.useState,
+      useEffect: React.useEffect,
+      useRef: React.useRef,
+      useMemo: React.useMemo,
+      useCallback: React.useCallback,
+    };
 
-      // Auth Server Bridge
-      const AuthServer = {
-        isLocal: !window.google || !google.script || !google.script.run,
-        login: function (username, password) {
-          if (this.isLocal) {
-            return new Promise((resolve) => {
-              setTimeout(() => {
-                if (username === "admin" && password === "admin123") {
-                  resolve({
-                    success: true,
-                    role: "admin",
-                    name: "Quản trị viên",
-                  });
-                } else if (username === "staff" && password === "123456") {
-                  resolve({ success: true, role: "staff", name: "Nhân viên" });
-                } else {
-                  resolve({
-                    success: false,
-                    message: "Sai tên đăng nhập hoặc mật khẩu!",
-                  });
-                }
-              }, 500);
-            });
-          } else {
-            return new Promise((resolve, reject) => {
-              google.script.run
-                .withSuccessHandler(resolve)
-                .withFailureHandler(reject)
-                .login(username, password);
-            });
+    // ============ AUTH CONTEXT ============
+    const AuthContext = React.createContext(null);
+
+    // Auth Server Bridge
+    const AuthServer = {
+      isLocal: !window.google || !google.script || !google.script.run,
+      login: function (username, password) {
+        if (this.isLocal) {
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              if (username === "admin" && password === "admin123") {
+                resolve({
+                  success: true,
+                  role: "admin",
+                  name: "Quản trị viên",
+                });
+              } else if (username === "staff" && password === "123456") {
+                resolve({ success: true, role: "staff", name: "Nhân viên" });
+              } else {
+                resolve({
+                  success: false,
+                  message: "Sai tên đăng nhập hoặc mật khẩu!",
+                });
+              }
+            }, 500);
+          });
+        } else {
+          return new Promise((resolve, reject) => {
+            google.script.run
+              .withSuccessHandler(resolve)
+              .withFailureHandler(reject)
+              .login(username, password);
+          });
+        }
+      },
+    };
+
+    // ============ AUTH PROVIDER ============
+    const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 ngày
+
+    function AuthProvider({ children }) {
+      const [user, setUser] = React.useState(() => {
+        const saved = localStorage.getItem("authUser");
+        if (saved) {
+          const userData = JSON.parse(saved);
+          const loginTime = new Date(userData.loginTime).getTime();
+          if (Date.now() - loginTime > SESSION_EXPIRY_MS) {
+            localStorage.removeItem("authUser");
+            return null;
           }
-        },
-      };
+          return userData;
+        }
+        return null;
+      });
 
-      // ============ AUTH PROVIDER ============
-      const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 ngày
-
-      function AuthProvider({ children }) {
-        const [user, setUser] = React.useState(() => {
-          const saved = localStorage.getItem("authUser");
-          if (saved) {
-            const userData = JSON.parse(saved);
-            const loginTime = new Date(userData.loginTime).getTime();
-            if (Date.now() - loginTime > SESSION_EXPIRY_MS) {
-              localStorage.removeItem("authUser");
-              return null;
-            }
-            return userData;
+      React.useEffect(() => {
+        const checkExpiry = () => {
+          if (user && user.loginTime) {
+            const loginTime = new Date(user.loginTime).getTime();
+            if (Date.now() - loginTime > SESSION_EXPIRY_MS) logout();
           }
-          return null;
-        });
+        };
+        const interval = setInterval(checkExpiry, 60000);
+        return () => clearInterval(interval);
+      }, [user]);
 
-        React.useEffect(() => {
-          const checkExpiry = () => {
-            if (user && user.loginTime) {
-              const loginTime = new Date(user.loginTime).getTime();
-              if (Date.now() - loginTime > SESSION_EXPIRY_MS) logout();
-            }
+      const login = async (username, password) => {
+        const result = await AuthServer.login(username, password);
+        if (result.success) {
+          const userData = {
+            username,
+            role: result.role,
+            name: result.name,
+            loginTime: new Date().toISOString(),
           };
-          const interval = setInterval(checkExpiry, 60000);
-          return () => clearInterval(interval);
-        }, [user]);
-
-        const login = async (username, password) => {
-          const result = await AuthServer.login(username, password);
-          if (result.success) {
-            const userData = {
-              username,
-              role: result.role,
-              name: result.name,
-              loginTime: new Date().toISOString(),
-            };
-            localStorage.setItem("authUser", JSON.stringify(userData));
-            setUser(userData);
-          }
-          return result;
-        };
-
-        const logout = () => {
-          localStorage.removeItem("authUser");
-          setUser(null);
-          if (!AuthServer.isLocal && google.script.run.logout) {
-            google.script.run.logout();
-          }
-        };
-
-        return (
-          <AuthContext.Provider value={{ user, login, logout }}>
-            {children}
-          </AuthContext.Provider>
-        );
-      }
-
-      const useAuth = () => React.useContext(AuthContext);
-
-      // ============ ICON COMPONENT ============
-      window.Icon = function ({ name, className = "" }) {
-        return (
-          <span className={`material-icons-round ${className}`}>{name}</span>
-        );
+          localStorage.setItem("authUser", JSON.stringify(userData));
+          setUser(userData);
+        }
+        return result;
       };
 
-      /* ============ CÁC COMPONENT KHÔNG DÙNG ĐÃ BỊ COMMENT ============ */
-      /*
-      window.PremiumDatePicker = function (...) { ... }
-      window.CustomSelect = function (...) { ... }
-      */
+      const logout = () => {
+        localStorage.removeItem("authUser");
+        setUser(null);
+        if (!AuthServer.isLocal && google.script.run.logout) {
+          google.script.run.logout();
+        }
+      };
 
-      // ============ LOGIN APP COMPONENT ============
-      function LoginApp() {
-        const { login } = useAuth();
-        const [username, setUsername] = React.useState("");
-        const [password, setPassword] = React.useState("");
-        const [showPassword, setShowPassword] = React.useState(false);
-        const [isLoading, setIsLoading] = React.useState(false);
-        const [error, setError] = React.useState("");
-        const [shake, setShake] = React.useState(false);
+      return (
+        <AuthContext.Provider value={{ user, login, logout }}>
+          {children}
+        </AuthContext.Provider>
+      );
+    }
 
-        const handleLogin = async (e) => {
-          e.preventDefault();
-          if (!username.trim() || !password.trim()) {
-            setError("Vui lòng nhập đầy đủ thông tin!");
+    const useAuth = () => React.useContext(AuthContext);
+
+    // ============ ICON COMPONENT ============
+    window.Icon = function ({ name, className = "" }) {
+      return (
+        <span className={`material-icons-round ${className}`}>{name}</span>
+      );
+    };
+
+    /* ============ CÁC COMPONENT KHÔNG DÙNG ĐÃ BỊ COMMENT ============ */
+    /*
+    window.PremiumDatePicker = function (...) { ... }
+    window.CustomSelect = function (...) { ... }
+    */
+
+    // ============ LOGIN APP COMPONENT ============
+    function LoginApp() {
+      const { login } = useAuth();
+      const [username, setUsername] = React.useState("");
+      const [password, setPassword] = React.useState("");
+      const [showPassword, setShowPassword] = React.useState(false);
+      const [isLoading, setIsLoading] = React.useState(false);
+      const [error, setError] = React.useState("");
+      const [shake, setShake] = React.useState(false);
+
+      const handleLogin = async (e) => {
+        e.preventDefault();
+        if (!username.trim() || !password.trim()) {
+          setError("Vui lòng nhập đầy đủ thông tin!");
+          setShake(true);
+          setTimeout(() => setShake(false), 500);
+          return;
+        }
+
+        setIsLoading(true);
+        setError("");
+
+        try {
+          const result = await login(username, password);
+          if (!result.success) {
+            setError(result.message || "Đăng nhập thất bại!");
             setShake(true);
             setTimeout(() => setShake(false), 500);
-            return;
           }
+        } catch (err) {
+          setError("Lỗi kết nối: " + err.message);
+          setShake(true);
+          setTimeout(() => setShake(false), 500);
+        } finally {
+          setIsLoading(false);
+        }
+      };
 
-          setIsLoading(true);
-          setError("");
+      const Icon = window.Icon;
 
-          try {
-            const result = await login(username, password);
-            if (!result.success) {
-              setError(result.message || "Đăng nhập thất bại!");
-              setShake(true);
-              setTimeout(() => setShake(false), 500);
-            }
-          } catch (err) {
-            setError("Lỗi kết nối: " + err.message);
-            setShake(true);
-            setTimeout(() => setShake(false), 500);
-          } finally {
-            setIsLoading(false);
-          }
-        };
-
-        const Icon = window.Icon;
-
-        return (
+      return (
+        <div
+          className="min-h-screen flex items-center justify-center p-4"
+          style={{
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          }}
+        >
           <div
-            className="min-h-screen flex items-center justify-center p-4"
+            className={`w-full max-w-md rounded-3xl shadow-2xl p-8 bg-white/95 backdrop-blur ${shake ? "animate-shake" : ""}`}
             style={{
-              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              animation: shake
+                ? "shake 0.5s ease-in-out"
+                : "fadeIn 0.5s ease-out",
             }}
           >
-            <div
-              className={`w-full max-w-md rounded-3xl shadow-2xl p-8 bg-white/95 backdrop-blur ${shake ? "animate-shake" : ""}`}
-              style={{
-                animation: shake
-                  ? "shake 0.5s ease-in-out"
-                  : "fadeIn 0.5s ease-out",
-              }}
-            >
-              {/* Logo & Header */}
-              <div className="text-center mb-8">
-                <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
-                  <Icon name="inventory_2" className="text-4xl text-white" />
+            {/* Logo & Header */}
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <Icon name="inventory_2" className="text-4xl text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-800">
+                Quản Lý Kho
+              </h1>
+              <p className="text-gray-500 mt-2">Đăng nhập để tiếp tục</p>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-red-600">
+                <Icon name="error" className="text-lg" />
+                <span className="text-sm font-medium">{error}</span>
+              </div>
+            )}
+
+            {/* Login Form */}
+            <form onSubmit={handleLogin} className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">
+                  Tên đăng nhập
+                </label>
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                    <Icon name="person" className="text-xl" />
+                  </div>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
+                    placeholder="Nhập tên đăng nhập..."
+                    autoComplete="username"
+                  />
                 </div>
-                <h1 className="text-2xl font-bold text-gray-800">
-                  Quản Lý Kho
-                </h1>
-                <p className="text-gray-500 mt-2">Đăng nhập để tiếp tục</p>
               </div>
 
-              {/* Error Message */}
-              {error && (
-                <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-red-600">
-                  <Icon name="error" className="text-lg" />
-                  <span className="text-sm font-medium">{error}</span>
-                </div>
-              )}
-
-              {/* Login Form */}
-              <form onSubmit={handleLogin} className="space-y-5">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-600 mb-2">
-                    Tên đăng nhập
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                      <Icon name="person" className="text-xl" />
-                    </div>
-                    <input
-                      type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      className="w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
-                      placeholder="Nhập tên đăng nhập..."
-                      autoComplete="username"
-                    />
+              <div>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">
+                  Mật khẩu
+                </label>
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                    <Icon name="lock" className="text-xl" />
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-600 mb-2">
-                    Mật khẩu
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                      <Icon name="lock" className="text-xl" />
-                    </div>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-12 pr-12 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
-                      placeholder="Nhập mật khẩu..."
-                      autoComplete="current-password"
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-12 pr-12 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
+                    placeholder="Nhập mật khẩu..."
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <Icon
+                      name={showPassword ? "visibility_off" : "visibility"}
+                      className="text-xl"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      <Icon
-                        name={showPassword ? "visibility_off" : "visibility"}
-                        className="text-xl"
-                      />
-                    </button>
-                  </div>
+                  </button>
                 </div>
+              </div>
 
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full py-4 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-70 transition-all hover:-translate-y-0.5"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                  }}
-                >
-                  {isLoading ? (
-                    <>
-                      <Icon name="sync" className="text-xl animate-spin" /> Đang
-                      đăng nhập...
-                    </>
-                  ) : (
-                    <>
-                      <Icon name="login" className="text-xl" /> Đăng nhập
-                    </>
-                  )}
-                </button>
-              </form>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-4 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-70 transition-all hover:-translate-y-0.5"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                }}
+              >
+                {isLoading ? (
+                  <>
+                    <Icon name="sync" className="text-xl animate-spin" /> Đang
+                    đăng nhập...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="login" className="text-xl" /> Đăng nhập
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    /* ============ ĐÃ COMMENT PHẦN CHUYỂN TRANG (MainApp) ============ */
+    /*
+    function MainApp() { ... logic chuyển trang ở đây ... }
+    */
+
+    // ============ MAIN APP MẪU (Thay thế tạm thời) ============
+    function DummyDashboard() {
+      const { user, logout } = useAuth();
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
+          <h1 className="text-3xl font-bold text-green-600 mb-4">
+            Đăng nhập thành công!
+          </h1>
+          <p className="text-gray-700 mb-6">
+            Xin chào, {user.name} (Role: {user.role})
+          </p>
+          <button
+            onClick={logout}
+            className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+          >
+            Đăng xuất
+          </button>
+        </div>
+      );
+    }
+    function MainApp() {
+      const { user, logout } = useAuth();
+      const [page, setPage] = React.useState("staff");
+
+      return (
+        <div className="flex h-screen bg-blue-50">
+          {/* Sidebar */}
+          <div className="w-64 bg-white shadow-lg p-4 flex flex-col">
+            <h2 className="text-xl font-bold text-blue-600 mb-6">
+              Quản lý kho
+            </h2>
+
+            <button
+              onClick={() => setPage("staff")}
+              className="p-2 text-left hover:bg-blue-100 rounded"
+            >
+              👩‍💼 Nhân viên
+            </button>
+
+            <button
+              onClick={() => setPage("product")}
+              className="p-2 text-left hover:bg-blue-100 rounded"
+            >
+              🛒 Hàng hoá
+            </button>
+
+            <div className="mt-auto">
+              <button
+                onClick={logout}
+                className="w-full bg-red-500 text-white p-2 rounded mt-4"
+              >
+                Đăng xuất
+              </button>
             </div>
           </div>
-        );
-      }
 
-      /* ============ ĐÃ COMMENT PHẦN CHUYỂN TRANG (MainApp) ============ */
-      /*
-      function MainApp() { ... logic chuyển trang ở đây ... }
-      */
-
-      // ============ MAIN APP MẪU (Thay thế tạm thời) ============
-      function DummyDashboard() {
-        const { user, logout } = useAuth();
-        return (
-          <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
-            <h1 className="text-3xl font-bold text-green-600 mb-4">
-              Đăng nhập thành công!
-            </h1>
-            <p className="text-gray-700 mb-6">
-              Xin chào, {user.name} (Role: {user.role})
-            </p>
-            <button
-              onClick={logout}
-              className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-            >
-              Đăng xuất
-            </button>
+          {/* Content */}
+          <div className="flex-1 p-6 overflow-auto">
+            {page === "staff" ? <StaffPage /> : <ProductPage />}
           </div>
-        );
-      }
-
-      // ============ APP ROOT ============
-      function AppRoot() {
-        const { user } = useAuth();
-
-        // Render trang Login nếu chưa đăng nhập, ngược lại render Dashboard tạm thời
-        return user ? <DummyDashboard /> : <LoginApp />;
-      }
-
-      // ============ RENDER ============
-      ReactDOM.createRoot(document.getElementById("app-root")).render(
-        <AuthProvider>
-          <AppRoot />
-        </AuthProvider>,
+        </div>
       );
-    </script>
+    }
 
-    <div id="app-root"></div>
-  </body>
+    // ============ APP ROOT ============
+    function AppRoot() {
+      const { user } = useAuth();
+
+      // Render trang Login nếu chưa đăng nhập, ngược lại render Dashboard tạm thời
+      return user ? <MainApp /> : <LoginApp />;
+    }
+
+    // ============ RENDER ============
+    ReactDOM.createRoot(document.getElementById("app-root")).render(
+      <AuthProvider>
+        <AppRoot />
+      </AuthProvider>,
+    );
+  </script>
+
+  <div id="app-root"></div>
+</body>
+
 </html>
