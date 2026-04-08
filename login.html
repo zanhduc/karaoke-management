@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <base target="_top" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Đăng nhập - Quản Lý Kho</title>
+    <script src="https://cdn.tailwindcss.com/3.3.5"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons+Round"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+      }
+      .login-card {
+        backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.95);
+      }
+      .input-field {
+        transition: all 0.3s ease;
+      }
+      .input-field:focus {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+      }
+      .btn-login {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        transition: all 0.3s ease;
+      }
+      .btn-login:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+      }
+      .btn-login:active {
+        transform: translateY(0);
+      }
+      .shake {
+        animation: shake 0.5s ease-in-out;
+      }
+      @keyframes shake {
+        0%,
+        100% {
+          transform: translateX(0);
+        }
+        20%,
+        60% {
+          transform: translateX(-10px);
+        }
+        40%,
+        80% {
+          transform: translateX(10px);
+        }
+      }
+      .fade-in {
+        animation: fadeIn 0.5s ease-out;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body class="flex items-center justify-center p-4">
+    <div id="login-root"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      // Server Bridge
+      const AuthServer = {
+        isLocal: !window.google || !google.script || !google.script.run,
+        login: function (username, password) {
+          if (this.isLocal) {
+            // Mock login for local testing
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                if (username === "admin" && password === "admin123") {
+                  resolve({ success: true, role: "admin", name: "Admin" });
+                } else if (username === "staff" && password === "123456") {
+                  resolve({ success: true, role: "staff", name: "Nhân viên" });
+                } else {
+                  resolve({
+                    success: false,
+                    message: "Sai tên đăng nhập hoặc mật khẩu!",
+                  });
+                }
+              }, 800);
+            });
+          } else {
+            return new Promise((resolve, reject) => {
+              google.script.run
+                .withSuccessHandler(resolve)
+                .withFailureHandler(reject)
+                .login(username, password);
+            });
+          }
+        },
+      };
+
+      function Icon({ name, className = "" }) {
+        return (
+          <span className={`material-icons-round ${className}`}>{name}</span>
+        );
+      }
+
+      function LoginApp() {
+        const [username, setUsername] = useState("");
+        const [password, setPassword] = useState("");
+        const [showPassword, setShowPassword] = useState(false);
+        const [isLoading, setIsLoading] = useState(false);
+        const [error, setError] = useState("");
+        const [shake, setShake] = useState(false);
+
+        const handleLogin = async (e) => {
+          e.preventDefault();
+          if (!username.trim() || !password.trim()) {
+            setError("Vui lòng nhập đầy đủ thông tin!");
+            setShake(true);
+            setTimeout(() => setShake(false), 500);
+            return;
+          }
+
+          setIsLoading(true);
+          setError("");
+
+          try {
+            const result = await AuthServer.login(username, password);
+            if (result.success) {
+              // Lưu session vào localStorage (dùng chung key với app chính)
+              localStorage.setItem(
+                "authUser",
+                JSON.stringify({
+                  username: username,
+                  role: result.role,
+                  name: result.name,
+                  loginTime: new Date().toISOString(),
+                }),
+              );
+              // Redirect to main app
+              if (AuthServer.isLocal) {
+                alert("Đăng nhập thành công! Role: " + result.role);
+              } else {
+                // Reload trong cùng frame để tránh lỗi cross-origin
+                window.location.href = window.location.href;
+              }
+            } else {
+              setError(result.message || "Đăng nhập thất bại!");
+              setShake(true);
+              setTimeout(() => setShake(false), 500);
+            }
+          } catch (err) {
+            setError("Lỗi kết nối: " + err.message);
+            setShake(true);
+            setTimeout(() => setShake(false), 500);
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        return (
+          <div
+            className={`login-card w-full max-w-md rounded-3xl shadow-2xl p-8 fade-in ${shake ? "shake" : ""}`}
+          >
+            {/* Logo & Header */}
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <Icon name="inventory_2" className="text-4xl text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-800">Quản Lý Kho</h1>
+              <p className="text-gray-500 mt-2">Đăng nhập để tiếp tục</p>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-red-600">
+                <Icon name="error" className="text-lg" />
+                <span className="text-sm font-medium">{error}</span>
+              </div>
+            )}
+
+            {/* Login Form */}
+            <form onSubmit={handleLogin} className="space-y-5">
+              {/* Username */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">
+                  Tên đăng nhập
+                </label>
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                    <Icon name="person" className="text-xl" />
+                  </div>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="input-field w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium"
+                    placeholder="Nhập tên đăng nhập..."
+                    autoComplete="username"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">
+                  Mật khẩu
+                </label>
+                <div className="relative">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                    <Icon name="lock" className="text-xl" />
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="input-field w-full pl-12 pr-12 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium"
+                    placeholder="Nhập mật khẩu..."
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <Icon
+                      name={showPassword ? "visibility_off" : "visibility"}
+                      className="text-xl"
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {/* Login Button */}
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="btn-login w-full py-4 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                {isLoading ? (
+                  <>
+                    <Icon name="sync" className="text-xl animate-spin" />
+                    Đang đăng nhập...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="login" className="text-xl" />
+                    Đăng nhập
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("login-root")).render(
+        <LoginApp />,
+      );
+    </script>
+  </body>
+</html>
