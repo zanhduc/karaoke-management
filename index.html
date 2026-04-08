@@ -50,6 +50,7 @@
 <body>
   <?!= include('staffComponent'); ?>
   <?!= include('productComponent'); ?>
+  <?!= include('roomComponent'); ?>
   <script type="text/babel">
     // ============ SHARED REACT HOOKS ============
     window.ReactShared = {
@@ -352,7 +353,9 @@
       const getInitialPage = () => {
         try {
           const p = new URLSearchParams(window.location.search).get("page");
-          return p === "product" ? "product" : "staff";
+          if (p === "product") return "product";
+          if (p === "room") return "room";
+          return "staff";
         } catch (e) {
           return "staff";
         }
@@ -373,6 +376,43 @@
 
       const StaffPage = window.StaffPage;
       const ProductPage = window.ProductPage;
+      const RoomPage = window.RoomPage;
+
+      const renderPage = () => {
+        if (page === "staff") {
+          if (!StaffPage) {
+            return (
+              <div className="p-4 text-red-600">
+                Lỗi: chưa tải được StaffPage. Kiểm tra file{" "}
+                <code>staffComponent.html</code> và include trong index.
+              </div>
+            );
+          }
+          return <StaffPage />;
+        }
+        if (page === "product") {
+          if (!ProductPage) {
+            return (
+              <div className="p-4 text-red-600">
+                Lỗi: chưa tải được ProductPage. Kiểm tra{" "}
+                <code>productComponent.html</code>.
+              </div>
+            );
+          }
+          return <ProductPage />;
+        }
+        if (!RoomPage) {
+          return (
+            <div className="p-4 text-red-600">
+              Lỗi: chưa tải được RoomPage. Trong Apps Script hãy thêm file{" "}
+              <code>roomComponent.html</code> (tên file đúng như vậy) và dòng{" "}
+              <code>include(&apos;roomComponent&apos;)</code> trong{" "}
+              <code>index.html</code>.
+            </div>
+          );
+        }
+        return <RoomPage />;
+      };
 
       return (
         <div className="flex h-screen bg-blue-50">
@@ -395,6 +435,12 @@
             >
               🛒 Hàng hoá
             </button>
+            <button
+              onClick={() => setPageAndUrl("room")}
+              className="p-2 text-left hover:bg-blue-100 rounded"
+            >
+              🏠 Phòng
+            </button>
 
             <div className="mt-auto">
               <button
@@ -407,9 +453,7 @@
           </div>
 
           {/* Content */}
-          <div className="flex-1 p-6 overflow-auto">
-            {page === "staff" ? <StaffPage /> : <ProductPage />}
-          </div>
+          <div className="flex-1 p-6 overflow-auto">{renderPage()}</div>
         </div>
       );
     }

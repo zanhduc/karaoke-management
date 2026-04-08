@@ -1,0 +1,505 @@
+<script type="text/babel">
+    (function () {
+        const { useEffect, useMemo, useState } = React;
+
+        const RoomServer = {
+            isLocal: !window.google || !google.script || !google.script.run,
+
+            getRooms() {
+                if (this.isLocal) {
+                    return Promise.resolve([
+                        { id: 101, name: "Phòng 101", type: "VIP", price_per_hour: 300000, status: "available", start_time: null, current_order_id: "" },
+                        { id: 102, name: "Phòng 102", type: "thường", price_per_hour: 150000, status: "occupied", start_time: Date.now() - 5400000, current_order_id: "ORD-2026-001" },
+                        { id: 103, name: "Phòng 103", type: "VIP", price_per_hour: 350000, status: "cleaning", start_time: null, current_order_id: "" },
+                    ]);
+                }
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .getRooms();
+                });
+            },
+
+            addRoom(r) {
+                if (this.isLocal) return Promise.resolve(true);
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .addRoom(r);
+                });
+            },
+
+            updateRoom(r) {
+                if (this.isLocal) return Promise.resolve(true);
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .updateRoom(r);
+                });
+            },
+
+            deleteRoom(id) {
+                if (this.isLocal) return Promise.resolve(true);
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .deleteRoom(id);
+                });
+            },
+
+            updateRoomStatus(roomId, status) {
+                if (this.isLocal) return Promise.resolve(true);
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .updateRoomStatus(roomId, status);
+                });
+            }
+        };
+
+        function StatusPill({ status, startTime }) {
+            if (status === "available") {
+                return <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">🟢 Trống</span>;
+            }
+            if (status === "occupied") {
+                return (
+                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
+                        🔴 Đang dùng
+                        {startTime && <span className="ml-2 text-[10px] font-normal">({getElapsed(startTime)})</span>}
+                    </span>
+                );
+            }
+            return <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">🟡 Đang dọn</span>;
+        }
+
+        function getElapsed(startTime) {
+            if (!startTime) return "";
+            const elapsed = Date.now() - new Date(startTime).getTime();
+            const hours = Math.floor(elapsed / 3600000);
+            const minutes = Math.floor((elapsed % 3600000) / 60000);
+            return `${hours}h ${minutes < 10 ? "0" : ""}${minutes}m`;
+        }
+
+        window.RoomPage = function RoomPage() {
+            const [rooms, setRooms] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [error, setError] = useState("");
+            const [success, setSuccess] = useState("");
+
+            const [statusFilter, setStatusFilter] = useState("all");
+            const [typeFilter, setTypeFilter] = useState("all");
+
+            // Popup Thêm phòng
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [addName, setAddName] = useState("");
+            const [addType, setAddType] = useState("thường");
+            const [addPrice, setAddPrice] = useState("");
+
+            // Popup Sửa phòng
+            const [showEditModal, setShowEditModal] = useState(false);
+            const [editingRoom, setEditingRoom] = useState(null);
+            const [editName, setEditName] = useState("");
+            const [editType, setEditType] = useState("");
+            const [editPrice, setEditPrice] = useState("");
+
+            // Popup Xoá phòng
+            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+            const [deletingId, setDeletingId] = useState(null);
+
+            // Popup Đổi trạng thái
+            const [showStatusConfirm, setShowStatusConfirm] = useState(false);
+            const [targetRoom, setTargetRoom] = useState(null);
+            const [newStatus, setNewStatus] = useState("");
+
+            const [tick, setTick] = useState(0);
+
+            const canAdd = useMemo(() => {
+                return addName.trim() !== "" &&
+                    addPrice !== "" &&
+                    !isNaN(Number(addPrice)) &&
+                    Number(addPrice) > 0;
+            }, [addName, addPrice]);
+
+            const load = async () => {
+                setIsLoading(true);
+                setError("");
+                try {
+                    const data = await RoomServer.getRooms();
+                    setRooms(Array.isArray(data) ? data : []);
+                } catch (e) {
+                    setError(e?.message || "Không tải được danh sách phòng.");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            useEffect(() => { load(); }, []);
+            useEffect(() => {
+                const interval = setInterval(() => setTick(t => t + 1), 30000);
+                return () => clearInterval(interval);
+            }, []);
+
+            // ====================== THÊM PHÒNG ======================
+            const openAddModal = () => {
+                setAddName("");
+                setAddType("thường");
+                setAddPrice("");
+                setShowAddModal(true);
+            };
+
+            const closeAddModal = () => setShowAddModal(false);
+
+            const handleAdd = async () => {
+                if (!canAdd) {
+                    setError("Vui lòng nhập đầy đủ Tên phòng và Giá/giờ hợp lệ.");
+                    return;
+                }
+
+                const newRoom = {
+                    id: Date.now(),
+                    name: addName.trim(),
+                    type: addType,
+                    price_per_hour: Number(addPrice),
+                    status: "available",
+                    start_time: null,
+                    current_order_id: "",
+                };
+
+                const prev = [...rooms];
+                setRooms([...rooms, newRoom]);
+                closeAddModal();
+
+                try {
+                    await RoomServer.addRoom(newRoom);
+                    setSuccess("Thêm phòng thành công!");
+                    setTimeout(() => setSuccess(""), 3000);
+                } catch (e) {
+                    setRooms(prev);
+                    setError("Thêm phòng thất bại.");
+                }
+            };
+
+            // ====================== SỬA PHÒNG ======================
+            const openEditModal = (room) => {
+                if (room.status === "occupied") {
+                    setError("Không thể chỉnh sửa phòng đang sử dụng.");
+                    return;
+                }
+                setEditingRoom(room);
+                setEditName(room.name || "");
+                setEditType(room.type || "thường");
+                setEditPrice(String(room.price_per_hour || ""));
+                setShowEditModal(true);
+            };
+
+            const closeEditModal = () => {
+                setShowEditModal(false);
+                setEditingRoom(null);
+            };
+
+            const handleUpdate = async () => {
+                if (!editingRoom) return;
+                if (!editName.trim() || !editPrice || isNaN(Number(editPrice)) || Number(editPrice) <= 0) {
+                    setError("Tên phòng và Giá/giờ không hợp lệ.");
+                    return;
+                }
+
+                const prev = [...rooms];
+                const patch = {
+                    id: editingRoom.id,
+                    name: editName.trim(),
+                    type: editType,
+                    price_per_hour: Number(editPrice),
+                };
+
+                setRooms(rooms.map(r => String(r.id) === String(editingRoom.id) ? { ...r, ...patch } : r));
+                closeEditModal();
+
+                try {
+                    await RoomServer.updateRoom(patch);
+                    setSuccess("Cập nhật phòng thành công!");
+                    setTimeout(() => setSuccess(""), 3000);
+                } catch (e) {
+                    setRooms(prev);
+                    setError("Cập nhật phòng thất bại.");
+                }
+            };
+
+            // ====================== ĐỔI TRẠNG THÁI ======================
+            const changeStatus = (room) => {
+                if (room.status === "occupied") {
+                    setError("Không thể thay đổi trạng thái của phòng đang sử dụng.");
+                    return;
+                }
+                const nextStatus = room.status === "available" ? "cleaning" : "available";
+                setTargetRoom(room);
+                setNewStatus(nextStatus);
+                setShowStatusConfirm(true);
+            };
+
+            const confirmChangeStatus = async () => {
+                if (!targetRoom) return;
+
+                const prev = [...rooms];
+                setRooms(rooms.map(r =>
+                    String(r.id) === String(targetRoom.id) ? { ...r, status: newStatus } : r
+                ));
+
+                try {
+                    await RoomServer.updateRoomStatus(targetRoom.id, newStatus);
+                    setSuccess(`Đã chuyển sang ${newStatus === "cleaning" ? "Đang dọn" : "Trống"}`);
+                    setTimeout(() => setSuccess(""), 3000);
+                } catch (e) {
+                    setRooms(prev);
+                    setError("Không thể thay đổi trạng thái.");
+                }
+
+                setShowStatusConfirm(false);
+                setTargetRoom(null);
+            };
+
+            // ====================== XOÁ PHÒNG ======================
+            const confirmDelete = (id) => {
+                setDeletingId(id);
+                setShowDeleteConfirm(true);
+            };
+
+            const cancelDelete = () => {
+                setShowDeleteConfirm(false);
+                setDeletingId(null);
+            };
+
+            const executeDelete = async () => {
+                if (!deletingId) return;
+                const prev = [...rooms];
+                setRooms(rooms.filter(r => String(r.id) !== String(deletingId)));
+
+                try {
+                    await RoomServer.deleteRoom(deletingId);
+                    setSuccess("Xoá phòng thành công!");
+                    setTimeout(() => setSuccess(""), 3000);
+                } catch (e) {
+                    setRooms(prev);
+                    setError("Xoá phòng thất bại.");
+                }
+                cancelDelete();
+            };
+
+            // Lọc phòng
+            const filteredRooms = useMemo(() => {
+                let result = [...rooms];
+                if (statusFilter !== "all") result = result.filter(r => r.status === statusFilter);
+                if (typeFilter !== "all") result = result.filter(r => r.type === typeFilter);
+                return result;
+            }, [rooms, statusFilter, typeFilter]);
+
+            const Icon = window.Icon;
+
+            return (
+                <div className="max-w-4xl mx-auto p-4">
+                    <div className="bg-white rounded-3xl shadow-xl overflow-hidden">
+
+                        {/* Header */}
+                        <div className="px-6 py-6 border-b bg-slate-50 flex items-center justify-between">
+                            <div>
+                                <h1 className="text-2xl font-bold text-slate-800">Quản lý phòng karaoke</h1>
+                                <p className="text-slate-500">Kiểm soát tình trạng và thời gian sử dụng phòng</p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={load} className="px-4 py-2.5 rounded-2xl border border-slate-200 hover:bg-white flex items-center gap-2">
+                                    <Icon name="refresh" /> Tải lại
+                                </button>
+                                <button onClick={openAddModal} className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl flex items-center gap-2">
+                                    + Thêm phòng
+                                </button>
+                            </div>
+                        </div>
+
+                        {error && <div className="mx-6 mt-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl">{error}</div>}
+                        {success && <div className="mx-6 mt-4 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl">{success}</div>}
+
+                        {/* Filter */}
+                        <div className="p-6 border-b flex flex-col md:flex-row gap-4 bg-white">
+                            <div className="flex-1">
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Trạng thái</label>
+                                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
+                                    <option value="all">Tất cả trạng thái</option>
+                                    <option value="available">🟢 Trống</option>
+                                    <option value="occupied">🔴 Đang dùng</option>
+                                    <option value="cleaning">🟡 Đang dọn</option>
+                                </select>
+                            </div>
+                            <div className="flex-1">
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Loại phòng</label>
+                                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
+                                    <option value="all">Tất cả loại</option>
+                                    <option value="VIP">VIP</option>
+                                    <option value="thường">Thường</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Danh sách phòng */}
+                        <div className="p-6">
+                            {isLoading ? (
+                                <div className="text-center py-12 text-slate-500">Đang tải danh sách phòng...</div>
+                            ) : filteredRooms.length === 0 ? (
+                                <div className="text-center py-12 text-slate-400">Không tìm thấy phòng nào phù hợp với bộ lọc.</div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {filteredRooms.map((r) => {
+                                        const canChangeStatus = r.status !== "occupied";
+                                        const canEdit = r.status !== "occupied";
+
+                                        return (
+                                            <div key={String(r.id)} className="bg-white border border-slate-200 hover:border-slate-300 rounded-3xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="font-semibold text-xl text-slate-800">{r.name}</div>
+                                                        <StatusPill status={r.status} startTime={r.start_time} />
+                                                    </div>
+                                                    <div className="mt-2 text-sm text-slate-500">
+                                                        {r.type} • {Number(r.price_per_hour).toLocaleString('vi-VN')}đ/giờ
+                                                        {r.current_order_id && <span className="ml-3 text-amber-600">• Order: {r.current_order_id}</span>}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex gap-2">
+                                                    {canChangeStatus && (
+                                                        <button
+                                                            onClick={() => changeStatus(r)}
+                                                            className="px-5 py-2 text-sm font-medium border border-slate-300 hover:bg-slate-50 rounded-2xl"
+                                                        >
+                                                            Đổi trạng thái
+                                                        </button>
+                                                    )}
+                                                    {canEdit && (
+                                                        <button
+                                                            onClick={() => openEditModal(r)}
+                                                            className="px-5 py-2 text-sm font-medium border border-indigo-200 hover:border-indigo-400 hover:text-indigo-600 rounded-2xl"
+                                                        >
+                                                            Sửa
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => confirmDelete(r.id)}
+                                                        className="px-5 py-2 text-sm font-medium bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl"
+                                                    >
+                                                        Xoá
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* ====================== POPUP THÊM PHÒNG ====================== */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                                <div className="px-6 pt-6 pb-4"><h2 className="text-2xl font-semibold">Thêm phòng mới</h2></div>
+                                <div className="px-6 space-y-5 pb-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-600 mb-1.5">Tên phòng <span className="text-red-500">*</span></label>
+                                        <input value={addName} onChange={e => setAddName(e.target.value)} placeholder="Ví dụ: Phòng 103" className="w-full rounded-2xl border border-slate-200 px-4 py-3 focus:outline-none focus:border-indigo-500" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-600 mb-1.5">Loại phòng</label>
+                                        <select value={addType} onChange={e => setAddType(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
+                                            <option value="thường">Thường</option>
+                                            <option value="VIP">VIP</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-600 mb-1.5">Giá/giờ (VND) <span className="text-red-500">*</span></label>
+                                        <input type="number" value={addPrice} onChange={e => setAddPrice(e.target.value)} placeholder="300000" className="w-full rounded-2xl border border-slate-200 px-4 py-3 focus:outline-none focus:border-indigo-500" />
+                                    </div>
+                                </div>
+                                <div className="border-t px-6 py-5 flex gap-3 bg-slate-50">
+                                    <button onClick={closeAddModal} className="flex-1 py-3.5 font-medium border border-slate-200 rounded-2xl hover:bg-white">Huỷ</button>
+                                    <button onClick={handleAdd} disabled={!canAdd} className="flex-1 py-3.5 font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white rounded-2xl">Thêm phòng</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ====================== POPUP SỬA PHÒNG ====================== */}
+                    {showEditModal && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                                <div className="px-6 pt-6 pb-4"><h2 className="text-2xl font-semibold">Chỉnh sửa phòng</h2></div>
+                                <div className="px-6 space-y-5 pb-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-600 mb-1.5">Tên phòng</label>
+                                        <input value={editName} onChange={e => setEditName(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 focus:outline-none focus:border-indigo-500" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-600 mb-1.5">Loại phòng</label>
+                                        <select value={editType} onChange={e => setEditType(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
+                                            <option value="thường">Thường</option>
+                                            <option value="VIP">VIP</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-600 mb-1.5">Giá/giờ (VND)</label>
+                                        <input type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 focus:outline-none focus:border-indigo-500" />
+                                    </div>
+                                </div>
+                                <div className="border-t px-6 py-5 flex gap-3 bg-slate-50">
+                                    <button onClick={closeEditModal} className="flex-1 py-3.5 font-medium border border-slate-200 rounded-2xl hover:bg-white">Huỷ</button>
+                                    <button onClick={handleUpdate} className="flex-1 py-3.5 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl">Lưu thay đổi</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ====================== POPUP XOÁ PHÒNG ====================== */}
+                    {showDeleteConfirm && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full mx-4">
+                                <div className="p-6 text-center">
+                                    <div className="mx-auto w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
+                                        <Icon name="trash" className="text-3xl" />
+                                    </div>
+                                    <h3 className="text-xl font-semibold">Xác nhận xoá phòng?</h3>
+                                    <p className="text-slate-500 mt-2">Hành động này không thể hoàn tác.</p>
+                                </div>
+                                <div className="border-t px-6 py-4 flex gap-3">
+                                    <button onClick={cancelDelete} className="flex-1 py-3 font-medium border border-slate-200 rounded-2xl hover:bg-slate-50">Huỷ</button>
+                                    <button onClick={executeDelete} className="flex-1 py-3 font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-2xl">Đồng ý xoá</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ====================== POPUP ĐỔI TRẠNG THÁI ====================== */}
+                    {showStatusConfirm && targetRoom && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full mx-4">
+                                <div className="p-6 text-center">
+                                    <h3 className="text-xl font-semibold">Xác nhận đổi trạng thái?</h3>
+                                    <p className="mt-3 text-slate-600">
+                                        Chuyển phòng <strong>{targetRoom.name}</strong> sang trạng thái:{" "}
+                                        <strong>{newStatus === "cleaning" ? "Đang dọn" : "Trống"}</strong>
+                                    </p>
+                                </div>
+                                <div className="border-t px-6 py-4 flex gap-3">
+                                    <button onClick={() => setShowStatusConfirm(false)} className="flex-1 py-3 font-medium border border-slate-200 rounded-2xl hover:bg-slate-50">Huỷ</button>
+                                    <button onClick={confirmChangeStatus} className="flex-1 py-3 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl">Xác nhận</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+    })();
+</script>
