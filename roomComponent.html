@@ -1,6 +1,49 @@
 <script type="text/babel">
     (function () {
-        const { useEffect, useMemo, useState } = React;
+        const { useEffect, useMemo, useState, useRef } = React;
+
+        // Component đếm ngược thời gian
+        const CountdownTimer = ({ startTime, endTime, small = false }) => {
+            const [display, setDisplay] = useState("");
+
+            useEffect(() => {
+                const updateCountdown = () => {
+                    const now = new Date();
+                    const start = new Date(startTime);
+                    const end = new Date(endTime);
+                    const totalTime = end - start;
+                    const elapsed = now - start;
+                    const remaining = totalTime - elapsed;
+
+                    if (remaining <= 0) {
+                        setDisplay("Hết giờ!");
+                        return;
+                    }
+
+                    const hours = Math.floor(remaining / 3600000);
+                    const minutes = Math.floor((remaining % 3600000) / 60000);
+                    const seconds = Math.floor((remaining % 60000) / 1000);
+
+                    setDisplay(
+                        hours > 0
+                            ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+                            : `${minutes}:${String(seconds).padStart(2, '0')}`
+                    );
+                };
+
+                updateCountdown();
+                const interval = setInterval(updateCountdown, 1000);
+                return () => clearInterval(interval);
+            }, [startTime, endTime]);
+
+            const sizeClass = small ? "text-sm" : "text-6xl";
+
+            return (
+                <div className={`${sizeClass} font-mono font-bold`}>
+                    {display}
+                </div>
+            );
+        };
 
         const RoomServer = {
             isLocal: !window.google || !google.script || !google.script.run,
@@ -18,6 +61,16 @@
                         .withSuccessHandler(resolve)
                         .withFailureHandler(reject)
                         .getRooms();
+                });
+            },
+
+            getOrders() {
+                if (this.isLocal) return Promise.resolve([]);
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        .getOrders();
                 });
             },
 
@@ -70,7 +123,7 @@
                 return (
                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
                         🔴 Đang dùng
-                        {startTime && <span className="ml-2 text-[10px] font-normal">({getElapsed(startTime)})</span>}
+
                     </span>
                 );
             }
@@ -87,6 +140,7 @@
 
         window.RoomPage = function RoomPage() {
             const [rooms, setRooms] = useState([]);
+            const [orders, setOrders] = useState([]);
             const [isLoading, setIsLoading] = useState(true);
             const [error, setError] = useState("");
             const [success, setSuccess] = useState("");
@@ -116,6 +170,11 @@
             const [targetRoom, setTargetRoom] = useState(null);
             const [newStatus, setNewStatus] = useState("");
 
+            // Popup Chi tiết phòng đang dùng
+            const [showRoomDetail, setShowRoomDetail] = useState(false);
+            const [selectedRoomDetail, setSelectedRoomDetail] = useState(null);
+            const [currentOrderDetail, setCurrentOrderDetail] = useState(null);
+
             const [tick, setTick] = useState(0);
 
             const canAdd = useMemo(() => {
@@ -129,8 +188,12 @@
                 setIsLoading(true);
                 setError("");
                 try {
-                    const data = await RoomServer.getRooms();
-                    setRooms(Array.isArray(data) ? data : []);
+                    const [roomsData, ordersData] = await Promise.all([
+                        RoomServer.getRooms(),
+                        RoomServer.getOrders()
+                    ]);
+                    setRooms(Array.isArray(roomsData) ? roomsData : []);
+                    setOrders(Array.isArray(ordersData) ? ordersData : []);
                 } catch (e) {
                     setError(e?.message || "Không tải được danh sách phòng.");
                 } finally {
@@ -140,7 +203,10 @@
 
             useEffect(() => { load(); }, []);
             useEffect(() => {
-                const interval = setInterval(() => setTick(t => t + 1), 30000);
+                const interval = setInterval(() => {
+                    load();
+                    setTick(t => t + 1);
+                }, 30000);
                 return () => clearInterval(interval);
             }, []);
 
@@ -263,6 +329,77 @@
                 setTargetRoom(null);
             };
 
+            // ====================== CHI TIẾT PHÒNG ======================
+            const openRoomDetail = async (room) => {
+                if (room.status !== "occupied") {
+                    setError("Phòng không đang sử dụng.");
+                    return;
+                }
+
+                setSelectedRoomDetail(room);
+
+                // Lấy dữ liệu order từ danh sách đã load
+                if (room.current_order_id) {
+                    let order = orders.find(o => String(o.orderCode) === String(room.current_order_id));
+
+                    // Nếu không tìm thấy, thử lấy từ API
+                    if (!order) {
+                        try {
+                            order = await new Promise((res, rej) =>
+                                google.script.run
+                                    .withSuccessHandler(res)
+                                    .withFailureHandler(() => rej(new Error("Không thể lấy order")))
+                                    .getOrderByCode(room.current_order_id)
+                            );
+                        } catch (e) {
+                            console.error("Error loading order:", e);
+                            setCurrentOrderDetail(null);
+                            setShowRoomDetail(true);
+                            return;
+                        }
+                    }
+
+                    // Check if order exists before processing
+                    if (!order) {
+                        console.error("Order not found:", room.current_order_id);
+                        setCurrentOrderDetail(null);
+                        setShowRoomDetail(true);
+                        return;
+                    }
+
+                    // Parse products và staffs thành array
+                    const products = order.products ?
+                        (typeof order.products === "string" ? JSON.parse(order.products) : order.products) :
+                        [];
+                    const staffs = order.staffs ?
+                        (typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs) :
+                        [];
+
+                    // Ensure endTime
+                    const endTime = order.endTime || new Date(Date.now() + 2 * 3600000).toISOString();
+
+                    const orderDetail = {
+                        ...order,
+                        products,
+                        staffs,
+                        endTime,
+                        customerName: order.customerName || "Vãng lai"
+                    };
+
+                    setCurrentOrderDetail(orderDetail);
+                    setShowRoomDetail(true);
+                } else {
+                    setCurrentOrderDetail(null);
+                    setShowRoomDetail(true);
+                }
+            };
+
+            const closeRoomDetail = () => {
+                setShowRoomDetail(false);
+                setSelectedRoomDetail(null);
+                setCurrentOrderDetail(null);
+            };
+
             // ====================== XOÁ PHÒNG ======================
             const confirmDelete = (id) => {
                 setDeletingId(id);
@@ -356,12 +493,31 @@
                                         const canChangeStatus = r.status !== "occupied";
                                         const canEdit = r.status !== "occupied";
 
+                                        // Get endTime from order data if available
+                                        let endTime = null;
+                                        if (r.current_order_id && r.status === "occupied") {
+                                            const order = orders.find(o => String(o.code) === String(r.current_order_id));
+                                            if (order && order.endTime) {
+                                                endTime = order.endTime;
+                                            }
+                                        }
+
+                                        // Fallback to estimated 2 hours if no order data
+                                        if (!endTime && r.start_time) {
+                                            endTime = new Date(new Date(r.start_time).getTime() + 7200000).toISOString();
+                                        }
+
                                         return (
                                             <div key={String(r.id)} className="bg-white border border-slate-200 hover:border-slate-300 rounded-3xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-3">
                                                         <div className="font-semibold text-xl text-slate-800">{r.name}</div>
                                                         <StatusPill status={r.status} startTime={r.start_time} />
+                                                        {r.status === "occupied" && r.start_time && endTime && (
+                                                            <div className="ml-3 text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+                                                                <CountdownTimer startTime={r.start_time} endTime={endTime} small={true} />
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="mt-2 text-sm text-slate-500">
                                                         {r.type} • {Number(r.price_per_hour).toLocaleString('vi-VN')}đ/giờ
@@ -370,6 +526,14 @@
                                                 </div>
 
                                                 <div className="flex gap-2">
+                                                    {r.status === "occupied" && (
+                                                        <button
+                                                            onClick={() => openRoomDetail(r)}
+                                                            className="px-5 py-2 text-sm font-medium bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-2xl"
+                                                        >
+                                                            📋 Chi tiết
+                                                        </button>
+                                                    )}
                                                     {canChangeStatus && (
                                                         <button
                                                             onClick={() => changeStatus(r)}
@@ -494,6 +658,145 @@
                                 <div className="border-t px-6 py-4 flex gap-3">
                                     <button onClick={() => setShowStatusConfirm(false)} className="flex-1 py-3 font-medium border border-slate-200 rounded-2xl hover:bg-slate-50">Huỷ</button>
                                     <button onClick={confirmChangeStatus} className="flex-1 py-3 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl">Xác nhận</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ====================== POPUP CHI TIẾT PHÒNG ====================== */}
+                    {showRoomDetail && selectedRoomDetail && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+                                {/* Header */}
+                                <div className="sticky top-0 px-8 py-6 border-b bg-gradient-to-r from-blue-50 to-indigo-50 flex justify-between items-center">
+                                    <div>
+                                        <h2 className="text-3xl font-bold text-slate-800">
+                                            {selectedRoomDetail.name}
+                                        </h2>
+                                        <p className="text-slate-600 mt-1">Loại: {selectedRoomDetail.type} • {Number(selectedRoomDetail.price_per_hour).toLocaleString('vi-VN')}đ/giờ</p>
+                                    </div>
+                                    <button
+                                        onClick={closeRoomDetail}
+                                        className="text-3xl text-slate-400 hover:text-slate-600"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                {/* Content */}
+                                <div className="p-8 space-y-8">
+                                    {/* Thời gian còn lại - Đếm ngược */}
+                                    {selectedRoomDetail.start_time && currentOrderDetail?.endTime && (
+                                        <div className="text-center p-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl text-white">
+                                            <div className="text-sm opacity-90 mb-3">Thời gian còn lại</div>
+                                            <CountdownTimer startTime={selectedRoomDetail.start_time} endTime={currentOrderDetail.endTime} />
+                                        </div>
+                                    )}
+
+                                    {/* Sản phẩm đã dùng */}
+                                    {currentOrderDetail && (
+                                        <>
+                                            <div>
+                                                <h3 className="text-xl font-bold text-slate-800 mb-4">📦 Sản phẩm đã dùng</h3>
+                                                {Array.isArray(currentOrderDetail.products) && currentOrderDetail.products.length > 0 ? (
+                                                    <div className="space-y-3">
+                                                        {currentOrderDetail.products.map((p, idx) => (
+                                                            <div key={idx} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl hover:bg-slate-100">
+                                                                <div>
+                                                                    <div className="font-semibold text-slate-800">{p.name}</div>
+                                                                    <div className="text-sm text-slate-500">Số lượng: {p.quantity}</div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="font-bold text-emerald-600">
+                                                                        {(Number(p.price) * p.quantity).toLocaleString('vi-VN')}đ
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-slate-400 text-center py-6">Không có sản phẩm nào</div>
+                                                )}
+                                            </div>
+
+                                            {/* Tiếp viên */}
+                                            <div>
+                                                <h3 className="text-xl font-bold text-slate-800 mb-4">👥 Tiếp viên</h3>
+                                                {Array.isArray(currentOrderDetail.staffs) && currentOrderDetail.staffs.length > 0 ? (
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        {currentOrderDetail.staffs.map((s, idx) => (
+                                                            <div key={idx} className="p-4 bg-blue-50 rounded-2xl border border-blue-200">
+                                                                <div className="font-semibold text-slate-800">{s.name}</div>
+                                                                <div className="text-sm text-slate-600 mt-1">
+                                                                    ⏱ {s.hours || 1} giờ
+                                                                </div>
+                                                                <div className="text-sm text-emerald-600 font-semibold mt-2">
+                                                                    {(Number(s.price_per_hour || 0) * (s.hours || 1)).toLocaleString('vi-VN')}đ
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-slate-400 text-center py-6">Không có tiếp viên nào</div>
+                                                )}
+                                            </div>
+
+                                            {/* Khách hàng & Ghi chú */}
+                                            <div className="bg-slate-50 p-6 rounded-2xl">
+                                                <div className="flex justify-between mb-3">
+                                                    <div>
+                                                        <div className="text-xs text-slate-500 uppercase">Khách hàng</div>
+                                                        <div className="font-semibold text-slate-800">{currentOrderDetail.customerName || "Vãng lai"}</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-xs text-slate-500 uppercase">Tổng tiền</div>
+                                                        <div className="font-bold text-emerald-600 text-lg">
+                                                            {Number(currentOrderDetail.grandTotal || 0).toLocaleString('vi-VN')}đ
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {currentOrderDetail.note && (
+                                                    <div className="mt-4 pt-4 border-t">
+                                                        <div className="text-xs text-slate-500 uppercase mb-1">Ghi chú</div>
+                                                        <div className="text-slate-700">{currentOrderDetail.note}</div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {!currentOrderDetail && (
+                                        <div className="text-center py-12 text-slate-400">
+                                            Không thể tải thông tin chi tiết order
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Close Button */}
+                                <div className="border-t p-6 bg-slate-50 flex gap-3">
+                                    {currentOrderDetail && (
+                                        <button
+                                            onClick={() => {
+                                                window.scrollTo(0, 0);
+                                                window.dispatchEvent(new CustomEvent('navigateToPage', {
+                                                    detail: {
+                                                        page: 'orderManagement',
+                                                        orderCode: currentOrderDetail.orderCode
+                                                    }
+                                                }));
+                                                closeRoomDetail();
+                                            }}
+                                            className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl transition"
+                                        >
+                                            ✏️ Sửa hóa đơn
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={closeRoomDetail}
+                                        className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl transition"
+                                    >
+                                        Đóng
+                                    </button>
                                 </div>
                             </div>
                         </div>
