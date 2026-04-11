@@ -2,27 +2,24 @@
     (function () {
         const { useEffect, useMemo, useState, useRef } = React;
 
-        // Component đếm ngược thời gian
-        const CountdownTimer = ({ startTime, endTime, small = false }) => {
+        // Component đếm thời gian đã sử dụng
+        const ElapsedTimer = ({ startTime, small = false }) => {
             const [display, setDisplay] = useState("");
 
             useEffect(() => {
-                const updateCountdown = () => {
+                const updateElapsed = () => {
                     const now = new Date();
                     const start = new Date(startTime);
-                    const end = new Date(endTime);
-                    const totalTime = end - start;
-                    const elapsed = now - start;
-                    const remaining = totalTime - elapsed;
+                    const diff = now - start;
 
-                    if (remaining <= 0) {
-                        setDisplay("Hết giờ!");
+                    if (diff < 0) {
+                        setDisplay("0:00");
                         return;
                     }
 
-                    const hours = Math.floor(remaining / 3600000);
-                    const minutes = Math.floor((remaining % 3600000) / 60000);
-                    const seconds = Math.floor((remaining % 60000) / 1000);
+                    const hours = Math.floor(diff / 3600000);
+                    const minutes = Math.floor((diff % 3600000) / 60000);
+                    const seconds = Math.floor((diff % 60000) / 1000);
 
                     setDisplay(
                         hours > 0
@@ -31,10 +28,10 @@
                     );
                 };
 
-                updateCountdown();
-                const interval = setInterval(updateCountdown, 1000);
+                updateElapsed();
+                const interval = setInterval(updateElapsed, 1000);
                 return () => clearInterval(interval);
-            }, [startTime, endTime]);
+            }, [startTime]);
 
             const sizeClass = small ? "text-sm" : "text-6xl";
 
@@ -513,9 +510,9 @@
                                                     <div className="flex items-center gap-3">
                                                         <div className="font-semibold text-xl text-slate-800">{r.name}</div>
                                                         <StatusPill status={r.status} startTime={r.start_time} />
-                                                        {r.status === "occupied" && r.start_time && endTime && (
-                                                            <div className="ml-3 text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
-                                                                <CountdownTimer startTime={r.start_time} endTime={endTime} small={true} />
+                                                        {r.status === "occupied" && r.start_time && (
+                                                            <div className="ml-3 text-xs font-medium text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">
+                                                                <ElapsedTimer startTime={r.start_time} small={true} />
                                                             </div>
                                                         )}
                                                     </div>
@@ -685,11 +682,11 @@
 
                                 {/* Content */}
                                 <div className="p-8 space-y-8">
-                                    {/* Thời gian còn lại - Đếm ngược */}
-                                    {selectedRoomDetail.start_time && currentOrderDetail?.endTime && (
-                                        <div className="text-center p-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl text-white">
-                                            <div className="text-sm opacity-90 mb-3">Thời gian còn lại</div>
-                                            <CountdownTimer startTime={selectedRoomDetail.start_time} endTime={currentOrderDetail.endTime} />
+                                    {/* Thời gian đã sử dụng */}
+                                    {selectedRoomDetail.start_time && (
+                                        <div className="text-center p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white">
+                                            <div className="text-sm opacity-90 mb-3">Thời gian đã sử dụng</div>
+                                            <ElapsedTimer startTime={selectedRoomDetail.start_time} />
                                         </div>
                                     )}
 

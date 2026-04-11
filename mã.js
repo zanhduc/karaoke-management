@@ -1127,6 +1127,11 @@ function generateOrderCode() {
 
 /**
  * Tạo đơn hàng mới
+ * - startTime = lúc tạo order
+ * - endTime = rỗng (sẽ set lúc thanh toán)
+ * - duration = rỗng (sẽ tính lúc thanh toán)
+ * - roomTotal = 0 (sẽ tính lúc thanh toán)
+ * - staffs = không có hours (tính từ lúc add vào order)
  */
 function createOrder(orderData) {
   if (!orderData || !orderData.roomId) {
@@ -1136,22 +1141,23 @@ function createOrder(orderData) {
   try {
     var orderCode = generateOrderCode();
     var now = new Date();
+    var startTime = orderData.startTime ? new Date(orderData.startTime) : now;
 
     var row = [
       orderCode,
       orderData.orderName ||
         `Hoá đơn phòng ${orderData.roomName || orderData.roomId}`,
       orderData.customerName || "Khách vãng lai",
-      orderData.startTime ? new Date(orderData.startTime) : now,
-      orderData.endTime ? new Date(orderData.endTime) : "",
-      orderData.duration || "",
+      startTime,
+      "", // endTime - rỗng, sẽ set lúc thanh toán
+      "", // duration - rỗng, sẽ tính lúc thanh toán
       orderCode,
       Number(orderData.serviceTotal) || 0,
-      Number(orderData.roomTotal) || 0,
+      0, // roomTotal = 0, sẽ tính lúc thanh toán
       Number(orderData.discountCustomer) || 0,
       Number(orderData.adjustment) || 0,
       JSON.stringify(orderData.products || []),
-      JSON.stringify(orderData.staffs || []),
+      JSON.stringify(orderData.staffs || []), // không có hours
       orderData.roomId,
       Number(orderData.grandTotal) || 0,
       Number(orderData.bankPayment) || 0,
@@ -1538,6 +1544,11 @@ function updateOrder(orderCode, updatedData) {
 
 /**
  * Chốt thanh toán cho order
+ * - Cập nhật endTime = hiện tại
+ * - Tính duration = làm tròn lên theo giờ
+ * - Tính roomTotal = roomPrice × duration
+ * - Cập nhật grandTotal
+ * - Giải phóng nhân viên
  */
 function markOrderAsPaid(orderCode, paymentData) {
   if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
@@ -1546,10 +1557,95 @@ function markOrderAsPaid(orderCode, paymentData) {
     var sheet = getOrderSheet();
     var data = sheet.getDataRange().getValues();
     var roomId = null;
+    var startTime = null;
+    var staffs = null;
     var found = false;
+    var now = new Date();
+    var endTime = now;
 
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+        startTime = new Date(data[i][ORDER_COL.START_TIME - 1]);
+        roomId = data[i][ORDER_COL.ROOM_ID - 1];
+
+        // Parse staffs
+        var staffsData = data[i][ORDER_COL.STAFFS - 1];
+        try {
+          if (typeof staffsData === "string" && staffsData) {
+            staffs = JSON.parse(staffsData);
+          }
+        } catch (e) {
+          staffs = [];
+        }
+
+        // Tính duration (làm tròn lên theo giờ)
+        var durationMs = endTime.getTime() - startTime.getTime();
+        var durationHours = durationMs / (1000 * 60 * 60);
+        var duration = Math.ceil(durationHours);
+
+        // Lấy giá phòng và tính roomTotal
+        var room = null;
+        var rooms = getRooms();
+        for (var j = 0; j < rooms.length; j++) {
+          if (String(rooms[j].id) === String(roomId)) {
+            room = rooms[j];
+            break;
+          }
+        }
+
+        var roomPrice = room ? Number(room.price_per_hour) || 0 : 0;
+        var roomTotal = roomPrice * duration;
+
+        // Tính tổng tiếp viên (tiếp viên lấy duration của phòng)
+        var staffTotal = 0;
+        if (staffs && Array.isArray(staffs)) {
+          for (var k = 0; k < staffs.length; k++) {
+            staffTotal += (Number(staffs[k].price_per_hour) || 0) * duration;
+          }
+        }
+
+        // Tính lại grandTotal
+        var serviceTotal = data[i][ORDER_COL.SERVICE_TOTAL - 1] || 0;
+        var discountCustomer = data[i][ORDER_COL.DISCOUNT_CUSTOMER - 1] || 0;
+        var adjustment = data[i][ORDER_COL.ADJUSTMENT - 1] || 0;
+        var productTotal = data[i][ORDER_COL.PRODUCTS - 1]
+          ? (function () {
+              try {
+                var prods =
+                  typeof data[i][ORDER_COL.PRODUCTS - 1] === "string"
+                    ? JSON.parse(data[i][ORDER_COL.PRODUCTS - 1])
+                    : data[i][ORDER_COL.PRODUCTS - 1];
+                var sum = 0;
+                if (Array.isArray(prods)) {
+                  for (var p = 0; p < prods.length; p++) {
+                    sum +=
+                      (Number(prods[p].price) || 0) *
+                      (Number(prods[p].quantity) || 1);
+                  }
+                }
+                return sum;
+              } catch (e) {
+                return 0;
+              }
+            })()
+          : 0;
+
+        var newServiceTotal = productTotal + staffTotal;
+        var subtotal = roomTotal + newServiceTotal;
+        var grandTotal = Math.max(
+          0,
+          subtotal - Number(discountCustomer) + Number(adjustment),
+        );
+
+        // Cập nhật các cột
+        sheet.getRange(i + 1, ORDER_COL.END_TIME).setValue(endTime);
+        sheet.getRange(i + 1, ORDER_COL.DURATION).setValue(duration);
+        sheet.getRange(i + 1, ORDER_COL.ROOM_TOTAL).setValue(roomTotal);
+        sheet
+          .getRange(i + 1, ORDER_COL.SERVICE_TOTAL)
+          .setValue(newServiceTotal);
+        sheet.getRange(i + 1, ORDER_COL.GRAND_TOTAL).setValue(grandTotal);
+
         // Cập nhật thanh toán
         sheet
           .getRange(i + 1, ORDER_COL.BANK_PAYMENT)
@@ -1561,9 +1657,11 @@ function markOrderAsPaid(orderCode, paymentData) {
           .getRange(i + 1, ORDER_COL.PAYMENT_STATUS)
           .setValue("Đã thanh toán");
 
-        roomId = data[i][ORDER_COL.ROOM_ID - 1];
-
-        auditLog(`Chốt thanh toán hoá đơn ${orderCode}`, "SUCCESS", "");
+        auditLog(
+          `Chốt thanh toán hoá đơn ${orderCode} - Duration: ${duration}h`,
+          "SUCCESS",
+          "",
+        );
         found = true;
         break;
       }
@@ -1571,6 +1669,23 @@ function markOrderAsPaid(orderCode, paymentData) {
 
     if (!found) {
       throw new Error("Không tìm thấy hoá đơn: " + orderCode);
+    }
+
+    // Giải phóng nhân viên
+    if (staffs && Array.isArray(staffs)) {
+      for (var s = 0; s < staffs.length; s++) {
+        if (staffs[s].id) {
+          try {
+            releaseStaff(staffs[s].id);
+          } catch (e) {
+            auditLog(
+              `Giải phóng nhân viên ${staffs[s].id} thất bại`,
+              "FAIL",
+              e.message || e,
+            );
+          }
+        }
+      }
     }
 
     // Cập nhật trạng thái phòng thành trống

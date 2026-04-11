@@ -2,18 +2,18 @@
     (function () {
         const { useEffect, useMemo, useState, useRef } = React;
 
-        // Component đếm ngược thời gian
-        const CountdownTimer = ({ endTime, small = false }) => {
+        // Component đếm thời gian đã sử dụng
+        const ElapsedTimer = ({ startTime, small = false }) => {
             const [display, setDisplay] = useState("");
 
             useEffect(() => {
-                const updateCountdown = () => {
+                const updateElapsed = () => {
                     const now = new Date();
-                    const end = new Date(endTime);
-                    const diff = end - now;
+                    const start = new Date(startTime);
+                    const diff = now - start;
 
-                    if (diff <= 0) {
-                        setDisplay("Hết giờ!");
+                    if (diff < 0) {
+                        setDisplay("0:00");
                         return;
                     }
 
@@ -28,10 +28,10 @@
                     );
                 };
 
-                updateCountdown();
-                const interval = setInterval(updateCountdown, 1000);
+                updateElapsed();
+                const interval = setInterval(updateElapsed, 1000);
                 return () => clearInterval(interval);
-            }, [endTime]);
+            }, [startTime]);
 
             const sizeClass = small ? "text-2xl" : "text-6xl";
 
@@ -149,76 +149,12 @@
 
             useEffect(() => {
                 loadAllData();
-                // Kiểm tra thông báo 10 phút và thời gian nhân viên mỗi 60s (để tránh nặng)
+                // Reload dữ liệu mỗi 30s để cập nhật thông tin thanh toán
                 const interval = setInterval(() => {
-                    checkTimeWarning(activeOrders);
-                    checkStaffTimeWarning(activeOrders);
-                }, 60000);
+                    loadAllData();
+                }, 30000);
                 return () => clearInterval(interval);
-            }, [activeOrders]);
-
-            // Kiểm tra và gửi thông báo khi còn 10 phút (popup notification)
-            const checkTimeWarning = (orderList) => {
-                const now = new Date();
-                orderList.forEach(order => {
-                    if (order.endTime) {
-                        const endTime = new Date(order.endTime);
-                        const timeDiff = endTime.getTime() - now.getTime();
-                        const minutesLeft = Math.floor(timeDiff / 60000);
-
-                        // Nếu còn 10 phút đến 15 phút (cách 5 phút từ 10 phút) - notify 1 lần
-                        if (minutesLeft >= 10 && minutesLeft <= 15) {
-                            const key = `${order.orderCode}-10min`;
-                            if (!notifiedOrdersRef.current.has(key)) {
-                                setNotification({
-                                    type: "warning",
-                                    title: `⏰ Phòng ${order.roomName || order.roomId}`,
-                                    message: `Order ${order.orderCode} chỉ còn ${minutesLeft} phút nữa!`,
-                                    duration: 5000
-                                });
-                                notifiedOrdersRef.current.add(key);
-                            }
-                        }
-                    }
-                });
-            };
-
-            // Kiểm tra thời gian nhân viên hết hạn và giải phóng (popup notification)
-            const checkStaffTimeWarning = (orderList) => {
-                const now = new Date();
-
-                orderList.forEach(order => {
-                    if (order.startTime && order.staffs) {
-                        const staffList = typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs;
-                        const startTime = new Date(order.startTime);
-
-                        staffList.forEach(staff => {
-                            const staffKey = `${order.orderCode}-${staff.id}`;
-                            // Nếu nhân viên chưa được giải phóng
-                            if (!releasedStaffsRef.current.has(staffKey)) {
-                                // Tính thời gian kết thúc phục vụ
-                                const staffEndTime = new Date(startTime.getTime() + (staff.hours || 1) * 60 * 60000);
-                                // Nếu đã hết giờ
-                                if (now >= staffEndTime) {
-                                    // Gọi releaseStaff để cập nhật trạng thái
-                                    google.script.run.withSuccessHandler(() => {
-                                        setNotification({
-                                            type: "success",
-                                            title: "👤 Nhân viên hết giờ",
-                                            message: `${staff.name} đã hết giờ - Chuyển sang Sẵn sàng!`,
-                                            duration: 5000
-                                        });
-                                    }).withFailureHandler((e) => {
-                                        console.error("Lỗi giải phóng nhân viên:", e);
-                                    }).releaseStaff(staff.id);
-
-                                    releasedStaffsRef.current.add(staffKey);
-                                }
-                            }
-                        });
-                    }
-                });
-            };
+            }, []);
 
             // Lọc orders theo loại
             const activeOrders = useMemo(() => {
@@ -350,9 +286,9 @@
             };
 
             // Thêm tiếp viên
-            const addStaffToCurrentOrder = (staff, hours = 1) => {
+            const addStaffToCurrentOrder = (staff) => {
                 if (!tempStaffs.find(s => s.id === staff.id)) {
-                    setTempStaffs([...tempStaffs, { ...staff, hours }]);
+                    setTempStaffs([...tempStaffs, { ...staff }]);
                 }
             };
 
@@ -371,17 +307,53 @@
                 return staffs.filter(s => !addedIds.has(s.id));
             }, [staffs, tempStaffs]);
 
+            // State theo dõi thời gian thực để tính ước tính tiền phòng
+            const [elapsedTick, setElapsedTick] = useState(0);
+
+            useEffect(() => {
+                if (!showDetailModal || selectedOrder?.paymentStatus === "Đã thanh toán") return;
+
+                const interval = setInterval(() => {
+                    setElapsedTick(t => t + 1);
+                }, 1000);
+                return () => clearInterval(interval);
+            }, [showDetailModal, selectedOrder?.paymentStatus]);
+
+            // Tính ước tính duration và tiền phòng khi chưa thanh toán
+            const estimatedCalc = useMemo(() => {
+                if (!selectedOrder?.startTime) return { estimatedDuration: 0, estimatedRoomTotal: 0 };
+
+                const startTime = new Date(selectedOrder.startTime);
+                const now = new Date();
+                const durationMs = now.getTime() - startTime.getTime();
+                const durationHours = durationMs / (1000 * 60 * 60);
+                const estimatedDuration = Math.ceil(durationHours);
+
+                // Lấy room price từ rooms list
+                const room = rooms.find(r => String(r.id) === String(selectedOrder.roomId));
+                const roomPrice = room ? Number(room.price_per_hour) || 0 : 0;
+                const estimatedRoomTotal = estimatedDuration * roomPrice;
+
+                return { estimatedDuration, estimatedRoomTotal };
+            }, [selectedOrder?.startTime, rooms, elapsedTick]);
+
             // Tính tổng tiền realtime trong modal
             const calc = useMemo(() => {
-                const prodTotal = tempProducts.reduce((sum, p) => sum + (Number(p.price) * (p.quantity || 1)), 0);
-                const staffTotal = tempStaffs.reduce((sum, s) => sum + (Number(s.price_per_hour) || 0) * (s.hours || 1), 0);
-                const serviceTotal = prodTotal + staffTotal;
-                const roomTotal = selectedOrder ? (rooms.find(r => String(r.id) === String(selectedOrder.roomId))?.price_per_hour || 0) : 0;
+                // Tính tiền hàng hoá + tiếp viên
+                const productTotal = tempProducts.reduce((sum, p) => sum + (Number(p.price) * (p.quantity || 1)), 0);
+                const staffTotal = tempStaffs.reduce((sum, s) => sum + (Number(s.price_per_hour) || 0), 0);
+
+                // Nếu đã thanh toán, dùng giá trị thực từ order; nếu chưa, dùng ước tính
+                const roomTotal = selectedOrder?.paymentStatus === "Đã thanh toán"
+                    ? (selectedOrder?.roomTotal || 0)
+                    : estimatedCalc.estimatedRoomTotal;
+
+                const serviceTotal = productTotal + staffTotal;
                 const subtotal = serviceTotal + roomTotal;
                 const grandTotal = Math.max(0, subtotal - (selectedOrder?.discountCustomer || 0) + (selectedOrder?.adjustment || 0));
 
-                return { serviceTotal, roomTotal, grandTotal, prodTotal, staffTotal };
-            }, [tempProducts, tempStaffs, selectedOrder, rooms]);
+                return { serviceTotal, roomTotal, grandTotal, prodTotal: productTotal, staffTotal };
+            }, [tempProducts, tempStaffs, selectedOrder, estimatedCalc]);
 
             // Lưu thay đổi vào order
             const saveOrderChanges = async () => {
@@ -418,9 +390,15 @@
             const completePayment = async () => {
                 if (!selectedOrder) return;
 
+                // Nếu đã thanh toán rồi thì không cho thanh toán nữa
+                if (selectedOrder?.paymentStatus === "Đã thanh toán") {
+                    setError("Đơn hàng này đã được chốt thanh toán rồi!");
+                    return;
+                }
+
                 const totalPaid = tempBankPayment + tempCashPayment;
                 if (totalPaid < calc.grandTotal) {
-                    setError("Số tiền thanh toán chưa đủ!");
+                    setError(`Số tiền thanh toán chưa đủ! Còn thiếu ${(calc.grandTotal - totalPaid).toLocaleString()}đ`);
                     return;
                 }
 
@@ -504,18 +482,13 @@
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                         {filteredActiveOrders.map(order => {
-                                            const endTime = new Date(order.endTime);
-                                            const now = new Date();
-                                            const minutesLeft = Math.floor((endTime - now) / 60000);
+                                            const startTime = new Date(order.startTime);
 
                                             return (
                                                 <div
                                                     key={order.orderCode}
                                                     onClick={() => openOrderDetail(order)}
-                                                    className={`border rounded-3xl p-6 cursor-pointer transition-all ${minutesLeft <= 10
-                                                        ? "border-rose-300 bg-rose-50"
-                                                        : "border-slate-200 hover:border-indigo-300"
-                                                        }`}
+                                                    className="border border-indigo-200 hover:border-indigo-400 rounded-3xl p-6 cursor-pointer transition-all bg-indigo-50"
                                                 >
                                                     <div className="flex justify-between items-start">
                                                         <div>
@@ -537,8 +510,8 @@
                                                                 <div className="text-emerald-600 font-semibold text-2xl">
                                                                     {Number(order.grandTotal || 0).toLocaleString()}đ
                                                                 </div>
-                                                                <div className={`text-xs ${minutesLeft <= 10 ? "text-rose-500 font-bold" : "text-slate-500"}`}>
-                                                                    {minutesLeft <= 0 ? "Hết giờ" : `${minutesLeft}p nữa`}
+                                                                <div className="text-xs text-indigo-600 font-bold">
+                                                                    🟢 Đang hoạt động
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -547,7 +520,7 @@
                                                         Khách: <strong>{order.customerName || "Vãng lai"}</strong>
                                                     </div>
                                                     <div className="text-xs text-slate-400 mt-1">
-                                                        Kết thúc: {order.endTime ? new Date(order.endTime).toLocaleString('vi-VN') : ''}
+                                                        Bắt đầu: {startTime.toLocaleString('vi-VN')}
                                                     </div>
                                                 </div>
                                             );
@@ -664,14 +637,7 @@
                                                                 <div className="font-medium">{s.name}</div>
                                                                 <div className="text-xs text-slate-500 mt-1">Giá/h: {Number(s.price_per_hour || 0).toLocaleString()}đ</div>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="flex items-center border border-slate-300 rounded-lg">
-                                                                    <button className="px-2 py-1 text-sm" onClick={() => updateStaffHours(s.id, (s.hours || 1) - 1)}>−</button>
-                                                                    <span className="px-2 text-sm font-medium">{s.hours || 1}h</span>
-                                                                    <button className="px-2 py-1 text-sm" onClick={() => updateStaffHours(s.id, (s.hours || 1) + 1)}>+</button>
-                                                                </div>
-                                                                <button onClick={() => removeStaffFromOrder(s.id)} className="text-rose-500 hover:text-rose-700 ml-2 font-bold">×</button>
-                                                            </div>
+                                                            <button onClick={() => removeStaffFromOrder(s.id)} className="text-rose-500 hover:text-rose-700 font-bold">×</button>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -684,7 +650,7 @@
                                                         if (e.target.value) {
                                                             const staff = staffs.find(s => String(s.id) === e.target.value);
                                                             if (staff) {
-                                                                addStaffToCurrentOrder(staff, 1);
+                                                                addStaffToCurrentOrder(staff);
                                                                 e.target.value = "";
                                                             }
                                                         }
@@ -702,16 +668,52 @@
                                         </div>
                                     </div>
 
+                                    {/* Thời gian sử dụng realtime - chỉ khi chưa thanh toán */}
+                                    {selectedOrder?.paymentStatus === "Chưa thanh toán" && selectedOrder?.startTime && (
+                                        <div className="mb-8 text-center p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white">
+                                            <div className="text-sm opacity-90 mb-3">Thời gian đã sử dụng</div>
+                                            <ElapsedTimer startTime={selectedOrder.startTime} small={false} />
+                                            <div className="text-xs opacity-75 mt-2">Tiền phòng sẽ tính dựa trên thời gian này (làm tròn theo giờ)</div>
+                                        </div>
+                                    )}
+
                                     {/* Tổng kết & Thanh toán */}
                                     <div className="mt-10 bg-slate-50 p-6 rounded-3xl">
+                                        {selectedOrder?.paymentStatus === "Chưa thanh toán" && (
+                                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+                                                💡 Tiền phòng sẽ được tính khi thanh toán (làm tròn theo giờ)
+                                            </div>
+                                        )}
                                         <div className="flex justify-between text-lg">
-                                            <span>Tổng tiền phòng:</span>
-                                            <span className="font-semibold">{calc.roomTotal.toLocaleString()} đ</span>
+                                            <span>Tổng hàng hoá:</span>
+                                            <span className="font-semibold">{calc.prodTotal.toLocaleString()} đ</span>
                                         </div>
                                         <div className="flex justify-between text-lg mt-2">
-                                            <span>Tổng dịch vụ:</span>
-                                            <span className="font-semibold">{calc.serviceTotal.toLocaleString()} đ</span>
+                                            <span>Tổng tiếp viên ({tempStaffs.length} người):</span>
+                                            <span className="font-semibold">{calc.staffTotal.toLocaleString()} đ</span>
                                         </div>
+                                        {selectedOrder?.paymentStatus === "Chưa thanh toán" && (
+                                            <div className="flex justify-between text-lg mt-2 text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                                                <span>Tiền phòng ({estimatedCalc.estimatedDuration}h - ước tính):</span>
+                                                <span className="font-semibold">{calc.roomTotal.toLocaleString()} đ</span>
+                                            </div>
+                                        )}
+                                        {selectedOrder?.paymentStatus === "Đã thanh toán" && (
+                                            <>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Tiền phòng ({selectedOrder?.duration}h):</span>
+                                                    <span className="font-semibold">{(selectedOrder?.roomTotal || 0).toLocaleString()} đ</span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Bắt đầu:</span>
+                                                    <span className="font-semibold">{selectedOrder?.startTime ? new Date(selectedOrder.startTime).toLocaleString('vi-VN') : ''}</span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Kết thúc:</span>
+                                                    <span className="font-semibold">{selectedOrder?.endTime ? new Date(selectedOrder.endTime).toLocaleString('vi-VN') : ''}</span>
+                                                </div>
+                                            </>
+                                        )}
                                         <div className="flex justify-between text-3xl font-bold mt-6 border-t pt-6">
                                             <span>Tổng thanh toán:</span>
                                             <span className="text-emerald-600">{calc.grandTotal.toLocaleString()} đ</span>
@@ -789,11 +791,11 @@
 
                                 {/* Content */}
                                 <div className="p-8 space-y-8">
-                                    {/* Thời gian còn lại - Đếm ngược */}
-                                    {selectedRoom.endTime && (
+                                    {/* Thời gian đã sử dụng */}
+                                    {selectedRoom.startTime && (
                                         <div className="text-center p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white">
-                                            <div className="text-sm opacity-90 mb-2">Thời gian còn lại</div>
-                                            <CountdownTimer endTime={selectedRoom.endTime} small={false} />
+                                            <div className="text-sm opacity-90 mb-2">Thời gian đã sử dụng</div>
+                                            <ElapsedTimer startTime={selectedRoom.startTime} small={false} />
                                         </div>
                                     )}
 
