@@ -24,6 +24,23 @@
             return `${hours}h ${minutes < 10 ? "0" : ""}${minutes}m`;
         }
 
+        function formatDurationClock(durationMs) {
+            const safeMs = Math.max(0, Number(durationMs || 0));
+            const totalMinutes = Math.floor(safeMs / 60000);
+            const hh = Math.floor(totalMinutes / 60);
+            const mm = totalMinutes % 60;
+            return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+        }
+
+        function normalizeStaffTimer(staff) {
+            return {
+                ...staff,
+                isPaused: Boolean(staff?.isPaused),
+                pauseStartedAt: staff?.pauseStartedAt || null,
+                totalPausedMs: Number(staff?.totalPausedMs || 0),
+            };
+        }
+
         // API abstraction
         const RoomServer = {
             isLocal: !window.google || !google.script || !google.script.run,
@@ -37,26 +54,41 @@
                     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getRooms();
                 });
             },
-            getOrders() {
+            getOrders(limit = 50) {
                 if (this.isLocal) return Promise.resolve([]);
                 return new Promise((resolve, reject) => {
-                    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getOrders();
+                    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getOrders(limit);
                 });
             },
             getProducts() {
-                if (this.isLocal) return new Promise(res => res([]));
+                if (this.isLocal) return Promise.resolve([
+                    { id: 1, name: "Bia Heineken", unit: "lon", price: 50000 },
+                    { id: 2, name: "Nước ngọt Coca", unit: "chai", price: 30000 },
+                    { id: 3, name: "Rượu vang Pháp", unit: "chai", price: 300000 },
+                    { id: 4, name: "Nước lọc", unit: "chai", price: 10000 },
+                    { id: 5, name: "Khoai tây chiên", unit: "bộ", price: 80000 },
+                ]);
                 return new Promise((resolve, reject) => {
                     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getProducts();
                 });
             },
             getStaffs() {
-                if (this.isLocal) return new Promise(res => res([]));
+                if (this.isLocal) return Promise.resolve([
+                    { id: 1, name: "Hoa", status: "available", price_per_hour: 100000 },
+                    { id: 2, name: "Linh", status: "available", price_per_hour: 120000 },
+                    { id: 3, name: "Tú", status: "busy", price_per_hour: 100000 },
+                    { id: 4, name: "Nhung", status: "available", price_per_hour: 110000 },
+                ]);
                 return new Promise((resolve, reject) => {
                     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getStaffs();
                 });
             },
             getCustomers() {
-                if (this.isLocal) return new Promise(res => res([]));
+                if (this.isLocal) return Promise.resolve([
+                    { id: 1, name: "Nguyễn Văn A", phone: "0912345678", discountPercent: 10 },
+                    { id: 2, name: "Trần Thị B", phone: "0987654321", discountPercent: 15 },
+                    { id: 3, name: "Lê Minh C", phone: "0901234567", discountPercent: 5 },
+                ]);
                 return new Promise((resolve, reject) => {
                     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getCustomers();
                 });
@@ -184,39 +216,139 @@
             const [discountCustomer, setDiscountCustomer] = useState(0);
             const [adjustment, setAdjustment] = useState(0);
 
+            const DATA_CACHE_KEY = "karaoke_room_unified_cache_v1";
+            const DATA_CACHE_TTL_MS = 60 * 1000;
+
+            const applyUnifiedDataToState = useCallback((data, keepCatalogIfMissing = true) => {
+                if (!data || typeof data !== "object") return;
+                if (Array.isArray(data.rooms)) setRooms(data.rooms);
+                if (Array.isArray(data.orders)) setOrders(data.orders);
+                if (Array.isArray(data.products)) {
+                    setProducts(data.products);
+                } else if (!keepCatalogIfMissing) {
+                    setProducts([]);
+                }
+                if (Array.isArray(data.staffs)) {
+                    setStaffs(data.staffs);
+                } else if (!keepCatalogIfMissing) {
+                    setStaffs([]);
+                }
+                if (Array.isArray(data.customers)) {
+                    setCustomers(data.customers);
+                } else if (!keepCatalogIfMissing) {
+                    setCustomers([]);
+                }
+            }, []);
+
+            const saveUnifiedCache = useCallback((payload) => {
+                try {
+                    localStorage.setItem(DATA_CACHE_KEY, JSON.stringify({
+                        ts: Date.now(),
+                        data: payload
+                    }));
+                } catch (e) {
+                    console.warn("Save cache failed", e);
+                }
+            }, []);
+
+            const loadUnifiedCache = useCallback(() => {
+                try {
+                    const raw = localStorage.getItem(DATA_CACHE_KEY);
+                    if (!raw) return null;
+                    const parsed = JSON.parse(raw);
+                    if (!parsed || !parsed.ts || !parsed.data) return null;
+                    const isExpired = Date.now() - Number(parsed.ts) > DATA_CACHE_TTL_MS;
+                    return { data: parsed.data, isExpired };
+                } catch (e) {
+                    console.warn("Read cache failed", e);
+                    return null;
+                }
+            }, []);
+
             // ──── Load Data ────
             const load = async () => {
                 setIsLoading(true);
                 setError("");
+                const cached = loadUnifiedCache();
+                if (cached?.data) {
+                    // Render ngay dữ liệu cache để lần mở đầu tiên mượt hơn
+                    applyUnifiedDataToState(cached.data, true);
+                    // Đừng set isLoading = false ngay, chỉ set khi data mới load xong
+                }
+
                 try {
-                    const data = await RoomServer.getUnifiedRoomData();
-                    setRooms(Array.isArray(data.rooms) ? data.rooms : []);
-                    setOrders(Array.isArray(data.orders) ? data.orders : []);
-                    setProducts(Array.isArray(data.products) ? data.products : []);
-                    setStaffs(Array.isArray(data.staffs) ? data.staffs : []);
-                    setCustomers(Array.isArray(data.customers) ? data.customers : []);
+                    // Tối ưu: Dùng Promise.all để fetch parallel thay vì sequence
+                    // Timeout 8s cho load lần đầu
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error("Load timeout")), 8000)
+                    );
+
+                    const loadPromise = (async () => {
+                        // Fetch rooms (nhanh nhất - ít data)
+                        const rooms = await RoomServer.getRooms().catch(err => {
+                            console.warn("Load rooms failed:", err);
+                            return [];
+                        });
+                        // Fetch orders (medium - có limit)
+                        const orders = await RoomServer.getOrders().catch(err => {
+                            console.warn("Load orders failed:", err);
+                            return [];
+                        });
+                        // Fetch catalog (products, staffs, customers) - parallel
+                        const [products, staffs, customers] = await Promise.all([
+                            RoomServer.getProducts().catch(err => {
+                                console.warn("Load products failed:", err);
+                                return [];
+                            }),
+                            RoomServer.getStaffs().catch(err => {
+                                console.warn("Load staffs failed:", err);
+                                return [];
+                            }),
+                            RoomServer.getCustomers().catch(err => {
+                                console.warn("Load customers failed:", err);
+                                return [];
+                            })
+                        ]);
+                        return { rooms, orders, products, staffs, customers };
+                    })();
+
+                    const data = await Promise.race([loadPromise, timeoutPromise]);
+
+                    applyUnifiedDataToState(data, false);
+                    saveUnifiedCache({
+                        rooms: Array.isArray(data.rooms) ? data.rooms : [],
+                        orders: Array.isArray(data.orders) ? data.orders : [],
+                        products: Array.isArray(data.products) ? data.products : [],
+                        staffs: Array.isArray(data.staffs) ? data.staffs : [],
+                        customers: Array.isArray(data.customers) ? data.customers : [],
+                    });
                 } catch (e) {
-                    setError(e?.message || "Không tải được dữ liệu.");
+                    if (!cached?.data) {
+                        setError(e?.message || "Không tải được dữ liệu.");
+                    }
                 } finally {
                     setIsLoading(false);
                 }
             };
 
-            const loadBackground = async () => {
+            const loadBackground = useCallback(async () => {
                 try {
                     const data = await RoomServer.getRoomAndOrderData();
-                    setRooms(Array.isArray(data.rooms) ? data.rooms : []);
-                    setOrders(Array.isArray(data.orders) ? data.orders : []);
+                    const nextRooms = Array.isArray(data.rooms) ? data.rooms : [];
+                    const nextOrders = Array.isArray(data.orders) ? data.orders : [];
+                    setRooms(nextRooms);
+                    setOrders(nextOrders);
                 } catch (e) {
                     console.warn("Background load failed", e);
                 }
-            };
+            }, []);
 
             useEffect(() => { load(); }, []);
             useEffect(() => {
-                const interval = setInterval(() => { loadBackground(); setTick(t => t + 1); }, 30000);
+                // Giảm interval từ 30s xuống 10s để sync nhanh hơn
+                const interval = setInterval(() => { loadBackground(); setTick(t => t + 1); }, 10000);
                 return () => clearInterval(interval);
-            }, []);
+            }, [loadBackground]);
 
             // ──── Room CRUD ────
             const canAdd = useMemo(() => {
@@ -356,11 +488,13 @@
                         return;
                     }
                     const products = order.products ? (typeof order.products === "string" ? JSON.parse(order.products) : order.products) : [];
-                    const staffs = order.staffs ? (typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs) : [];
+                    const staffs = order.staffs
+                        ? (typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs)
+                        : [];
                     const endTime = order.endTime || new Date(Date.now() + 2 * 3600000).toISOString();
                     setCurrentOrderDetail({ ...order, products, staffs, endTime, customerName: order.customerName || "Vãng lai" });
                     setTempProducts(products);
-                    setTempStaffs(staffs);
+                    setTempStaffs(staffs.map(normalizeStaffTimer));
                     setTempBankPayment(order.bankPayment || 0);
                     setTempCashPayment(order.cashPayment || 0);
                     setTempNote(order.note || "");
@@ -423,7 +557,10 @@
 
             const addStaffToCurrentOrder = (staff) => {
                 if (!tempStaffs.find(s => s.id === staff.id)) {
-                    setTempStaffs([...tempStaffs, { ...staff, startTime: new Date().toISOString() }]);
+                    setTempStaffs([
+                        ...tempStaffs,
+                        { ...staff, startTime: new Date().toISOString(), isPaused: false, pauseStartedAt: null, totalPausedMs: 0 }
+                    ]);
                 }
             };
 
@@ -446,9 +583,31 @@
                 }
             };
 
+            const toggleStaffPause = (staffId) => {
+                const now = Date.now();
+                setTempStaffs(prev => prev.map((s) => {
+                    if (String(s.id) !== String(staffId)) return s;
+                    const currentPaused = Boolean(s.isPaused);
+                    const pauseStartedAtMs = s.pauseStartedAt ? new Date(s.pauseStartedAt).getTime() : now;
+                    if (currentPaused) {
+                        return {
+                            ...s,
+                            isPaused: false,
+                            pauseStartedAt: null,
+                            totalPausedMs: Number(s.totalPausedMs || 0) + Math.max(0, now - pauseStartedAtMs),
+                        };
+                    }
+                    return {
+                        ...s,
+                        isPaused: true,
+                        pauseStartedAt: new Date(now).toISOString(),
+                    };
+                }));
+            };
+
             // Calculate estimated duration from startTime to endTime
             const estimatedCalc = useMemo(() => {
-                if (!currentOrderDetail?.startTime) return { estimatedDuration: 0, estimatedRoomTotal: 0 };
+                if (!currentOrderDetail?.startTime) return { estimatedDuration: "00:00", estimatedRoomTotal: 0 };
 
                 const startTime = new Date(currentOrderDetail.startTime);
                 let endTime;
@@ -464,16 +623,15 @@
                 if (durationMs < 0) durationMs = 0;
 
                 const durationMinutes = durationMs / (1000 * 60);
-                const durationHours = durationMinutes / 60;
-                const estimatedDuration = durationHours.toFixed(2);
+                const estimatedDuration = formatDurationClock(durationMs);
 
-                const room = rooms.find(r => String(r.id) === String(currentOrderDetail.roomId));
-                const roomPrice = room ? Number(room.price_per_hour) || 0 : 0;
+                // Fix: Check nếu roomPriceById là Map trước khi gọi .get()
+                const roomPrice = (roomPriceById && typeof roomPriceById.get === 'function') ? (roomPriceById.get(String(currentOrderDetail.roomId)) || 0) : 0;
                 const rawRoomTotal = (roomPrice / 60) * durationMinutes;
                 const estimatedRoomTotal = Math.round(rawRoomTotal / 1000) * 1000;
 
                 return { estimatedDuration, estimatedRoomTotal };
-            }, [currentOrderDetail?.startTime, currentOrderDetail?.endTime, rooms, isPausedTime, pausedTimeMs, totalPausedMs, timeTick]);
+            }, [currentOrderDetail?.startTime, currentOrderDetail?.endTime, roomPriceById, isPausedTime, pausedTimeMs, totalPausedMs, timeTick]);
 
             // Update time every second when modal is open and not paused
             useEffect(() => {
@@ -481,7 +639,7 @@
 
                 const interval = setInterval(() => {
                     setTimeTick(t => t + 1);
-                }, 1000);
+                }, 15000);
 
                 return () => clearInterval(interval);
             }, [showOrderDetailModal, currentOrderDetail?.paymentStatus]);
@@ -500,7 +658,12 @@
                 // Tính riêng cho từng tiếp viên
                 const staffBreakdown = tempStaffs.map(s => {
                     const staffStart = s.startTime ? new Date(s.startTime) : new Date(currentOrderDetail?.startTime || new Date());
-                    let durationMs = calcEndTime.getTime() - staffStart.getTime();
+                    const pausedFromPrevious = Number(s.totalPausedMs || 0);
+                    const pauseStartedAtMs = s.pauseStartedAt ? new Date(s.pauseStartedAt).getTime() : 0;
+                    const livePausedMs = s.isPaused ? Math.max(0, calcEndTime.getTime() - pauseStartedAtMs) : 0;
+                    const totalStaffPausedMs = pausedFromPrevious + livePausedMs;
+                    const activeEndTimeMs = s.isPaused && pauseStartedAtMs ? pauseStartedAtMs : calcEndTime.getTime();
+                    let durationMs = activeEndTimeMs - staffStart.getTime() - totalStaffPausedMs;
                     if (durationMs < 0) durationMs = 0;
                     const durationMinutes = durationMs / (1000 * 60);
                     const durationHours = durationMinutes / 60;
@@ -546,10 +709,22 @@
                         .withFailureHandler(() => { })
                         .updateOrder(currentOrderDetail.orderCode, updatedOrder);
 
+                    // Cập nhật local state ngay thay vì reload
+                    const updatedOrders = orders.map(o => o.orderCode === currentOrderDetail.orderCode ? updatedOrder : o);
+                    setOrders(updatedOrders);
+                    setCurrentOrderDetail(updatedOrder);
+
+                    // Lưu vào cache
+                    saveUnifiedCache({
+                        rooms,
+                        orders: updatedOrders,
+                        products,
+                        staffs,
+                        customers,
+                    });
+
                     setSuccess("Đã lưu thay đổi vào đơn hàng");
                     setTimeout(() => setSuccess(""), 2500);
-
-                    load();
                     closeOrderDetailModal();
                 } catch (e) {
                     setError("Lưu thay đổi thất bại");
@@ -557,15 +732,18 @@
             };
 
             // Complete payment
-            const completePayment = async () => {
+            const completePayment = async (paymentOverride = null, opts = {}) => {
                 if (!currentOrderDetail) return;
+                const { closeQrAfter = false } = opts;
 
                 if (currentOrderDetail?.paymentStatus === "Đã thanh toán") {
                     setError("Đơn hàng này đã được chốt thanh toán rồi!");
                     return;
                 }
 
-                const totalPaid = tempBankPayment + tempCashPayment;
+                const bankPayment = paymentOverride?.bankPayment ?? tempBankPayment;
+                const cashPayment = paymentOverride?.cashPayment ?? tempCashPayment;
+                const totalPaid = Number(bankPayment || 0) + Number(cashPayment || 0);
                 if (totalPaid < orderDetailCalc.grandTotal) {
                     setError(`Số tiền thanh toán chưa đủ! Còn thiếu ${(orderDetailCalc.grandTotal - totalPaid).toLocaleString()}đ`);
                     return;
@@ -576,15 +754,38 @@
                         .withSuccessHandler(() => { })
                         .withFailureHandler(() => { })
                         .markOrderAsPaid(currentOrderDetail.orderCode, {
-                            bankPayment: tempBankPayment,
-                            cashPayment: tempCashPayment,
+                            bankPayment,
+                            cashPayment,
                             paymentStatus: "Đã thanh toán"
                         });
 
                     setSuccess(`Hoàn tất thanh toán đơn ${currentOrderDetail.orderCode}`);
                     setTimeout(() => setSuccess(""), 3000);
 
-                    load();
+                    // Cập nhật local state ngay thay vì reload
+                    const paidOrder = {
+                        ...currentOrderDetail,
+                        endTime: new Date().toISOString(),
+                        paymentStatus: "Đã thanh toán",
+                        bankPayment,
+                        cashPayment
+                    };
+                    const updatedOrders = orders.map(o => o.orderCode === currentOrderDetail.orderCode ? paidOrder : o);
+                    setOrders(updatedOrders);
+                    setCurrentOrderDetail(paidOrder);
+
+                    // Lưu vào cache
+                    saveUnifiedCache({
+                        rooms,
+                        orders: updatedOrders,
+                        products,
+                        staffs,
+                        customers,
+                    });
+
+                    setTempBankPayment(bankPayment);
+                    setTempCashPayment(cashPayment);
+                    if (closeQrAfter) setShowQrModal(false);
                     closeOrderDetailModal();
                 } catch (e) {
                     setError("Thanh toán thất bại");
@@ -605,33 +806,30 @@
                         setSuccess(`Đã xoá đơn hàng ${currentOrderDetail.orderCode}`);
                         setTimeout(() => setSuccess(""), 3000);
 
-                        load();
+                        // Cập nhật local state ngay thay vì reload
+                        const updatedOrders = orders.filter(o => o.orderCode !== currentOrderDetail.orderCode);
+                        const updatedRooms = rooms.map(r =>
+                            String(r.current_order_id) === String(currentOrderDetail.orderCode)
+                                ? { ...r, status: 'available', start_time: null, current_order_id: '' }
+                                : r
+                        );
+                        setOrders(updatedOrders);
+                        setRooms(updatedRooms);
+
+                        // Lưu vào cache
+                        saveUnifiedCache({
+                            rooms: updatedRooms,
+                            orders: updatedOrders,
+                            products,
+                            staffs,
+                            customers,
+                        });
+
                         closeOrderDetailModal();
                     } catch (e) {
-                        setError("Xoá đơn hàng thất bại");
+                        setError("Xoá đơn hàng thất bại: " + (e.message || e));
                     }
                 }
-            };
-
-            const confirmDelete = (id) => {
-                setDeletingId(id);
-                setShowDeleteConfirm(true);
-            };
-
-            const executeDelete = async () => {
-                if (!deletingId) return;
-                const prev = [...rooms];
-                setRooms(rooms.filter(r => String(r.id) !== String(deletingId)));
-                try {
-                    await RoomServer.deleteRoom(deletingId);
-                    setSuccess("Xoá phòng thành công!");
-                    setTimeout(() => setSuccess(""), 3000);
-                } catch (e) {
-                    setRooms(prev);
-                    setError("Xoá phòng thất bại.");
-                }
-                setShowDeleteConfirm(false);
-                setDeletingId(null);
             };
 
             const filteredRooms = useMemo(() => {
@@ -641,11 +839,44 @@
                 return result;
             }, [rooms, statusFilter, typeFilter]);
 
+            const roomPriceById = useMemo(() => {
+                const map = new Map();
+                rooms.forEach((r) => map.set(String(r.id), Number(r.price_per_hour) || 0));
+                return map;
+            }, [rooms]);
+
+            const orderByCodeMap = useMemo(() => {
+                const map = new Map();
+                orders.forEach((o) => {
+                    if (!o) return;
+                    if (o.orderCode) map.set(String(o.orderCode), o);
+                    if (o.code) map.set(String(o.code), o);
+                });
+                return map;
+            }, [orders]);
+
             // ──── Order Modal Functions ────
-            const openOrderModal = (roomId) => {
+            const openOrderModal = async (roomId) => {
                 setSelectedRoomIdForOrder(roomId);
-                setShowOrderModal(true);
                 resetOrderForm();
+
+                // Nếu products/staffs/customers chưa có, load từ backend
+                if (!products || products.length === 0 || !staffs || staffs.length === 0 || !customers || customers.length === 0) {
+                    try {
+                        const [prodData, staffData, custData] = await Promise.all([
+                            RoomServer.getProducts().catch(() => []),
+                            RoomServer.getStaffs().catch(() => []),
+                            RoomServer.getCustomers().catch(() => [])
+                        ]);
+                        if (Array.isArray(prodData)) setProducts(prodData);
+                        if (Array.isArray(staffData)) setStaffs(staffData);
+                        if (Array.isArray(custData)) setCustomers(custData);
+                    } catch (e) {
+                        console.warn("Load products/staffs/customers failed:", e);
+                    }
+                }
+
+                setShowOrderModal(true);
             };
 
             const closeOrderModal = () => {
@@ -667,7 +898,11 @@
             };
 
             const selectedRoom = useMemo(() => rooms.find(r => String(r.id) === selectedRoomIdForOrder) || null, [rooms, selectedRoomIdForOrder]);
-            const selectedCustomer = useMemo(() => customers.find(c => String(c.id) === selectedCustomerId) || null, [customers, selectedCustomerId]);
+            const selectedCustomer = useMemo(() => {
+                const found = customers.find(c => String(c.id) === String(selectedCustomerId)) || null;
+
+                return found;
+            }, [customers, selectedCustomerId]);
 
             useEffect(() => {
                 if (selectedCustomer && selectedCustomer.discountPercent > 0) {
@@ -684,9 +919,13 @@
                 let discount = Number(discountCustomer || 0);
                 if (selectedCustomer && selectedCustomer.discountPercent > 0) {
                     discount = Math.floor((serviceTotal * selectedCustomer.discountPercent) / 100);
+                    console.log("Tính discount từ customer:", selectedCustomer.name, "discountPercent:", selectedCustomer.discountPercent, "serviceTotal:", serviceTotal, "discount:", discount);
+                } else {
+                    console.log("selectedCustomer không có hoặc discountPercent = 0:", selectedCustomer);
                 }
                 const rawGrandTotal = Math.max(0, serviceTotal - discount + Number(adjustment || 0));
                 const grandTotal = Math.round(rawGrandTotal / 1000) * 1000;
+                console.log("orderCalc result - productTotal:", productTotal, "staffTotal:", staffTotal, "serviceTotal:", serviceTotal, "discount:", discount, "grandTotal:", grandTotal);
                 return { productTotal, staffTotal, serviceTotal, grandTotal, discount };
             }, [orderItems, orderStaffs, discountCustomer, adjustment, selectedCustomer]);
 
@@ -720,7 +959,7 @@
                 if (!staff) return;
                 setOrderStaffs(prev => {
                     if (prev.find(s => s.id === staff.id)) return prev;
-                    return [...prev, { ...staff, startTime: orderStartTime.toISOString() }];
+                    return [...prev, { ...staff, startTime: orderStartTime.toISOString(), isPaused: false, pauseStartedAt: null, totalPausedMs: 0 }];
                 });
                 setPickStaffId("");
             }, [pickStaffId, staffs, orderStartTime]);
@@ -745,7 +984,15 @@
                     serviceTotal: orderCalc.serviceTotal,
                     roomTotal: 0,
                     products: orderItems.map(({ id, name, quantity, price }) => ({ id, name, quantity, price })),
-                    staffs: orderStaffs.map(({ id, name, price_per_hour, startTime }) => ({ id, name, price_per_hour, startTime: startTime || orderStartTime.toISOString() })),
+                    staffs: orderStaffs.map(({ id, name, price_per_hour, startTime, isPaused, pauseStartedAt, totalPausedMs }) => ({
+                        id,
+                        name,
+                        price_per_hour,
+                        startTime: startTime || orderStartTime.toISOString(),
+                        isPaused: Boolean(isPaused),
+                        pauseStartedAt: pauseStartedAt || null,
+                        totalPausedMs: Number(totalPausedMs || 0),
+                    })),
                     grandTotal: orderCalc.grandTotal,
                     discountCustomer: orderCalc.discount,
                     adjustment: Number(adjustment || 0),
@@ -765,9 +1012,37 @@
                     );
 
                     if (res.success) {
+                        // Cập nhật local state ngay (optimistic update)
+                        const newOrder = {
+                            ...orderData,
+                            orderCode: res.orderCode,
+                            startTime: orderData.startTime,
+                            endTime: "",
+                            paymentStatus: "Chưa thanh toán"
+                        };
+                        const updatedOrders = [newOrder, ...orders];
+
+                        // Dùng room data từ backend thay vì optimistic
+                        const updatedRooms = rooms.map(r =>
+                            String(r.id) === String(selectedRoomIdForOrder)
+                                ? res.room // Trả từ backend, update ngay!
+                                : r
+                        );
+
+                        setOrders(updatedOrders);
+                        setRooms(updatedRooms);
+
+                        // Lưu vào cache ngay
+                        saveUnifiedCache({
+                            rooms: updatedRooms,
+                            orders: updatedOrders,
+                            products,
+                            staffs,
+                            customers,
+                        });
+
                         setSuccess(`Tạo hoá đơn thành công! Mã HĐ: ${res.orderCode}`);
                         closeOrderModal();
-                        load(); // Reload rooms
                         setTimeout(() => setSuccess(""), 5000);
                     }
                 } catch (e) {
@@ -893,8 +1168,8 @@ ${change > 0 ? "" : ""}
             // QR CHUYỂN KHOẢN (dùng api.qrserver.com — free, không cần key)
             // Format: BANK_ID|ACCOUNT|AMOUNT|CONTENT
             // ─────────────────────────────────────────────────────────────
-            const QR_BANK_ID   = "MB";          // Mã ngân hàng (MBBank, vietcombank, techcombank...)
-            const QR_ACCOUNT   = "0123456789";  // Số tài khoản của quán
+            const QR_BANK_ID = "MB";          // Mã ngân hàng (MBBank, vietcombank, techcombank...)
+            const QR_ACCOUNT = "0123456789";  // Số tài khoản của quán
             const QR_BANK_NAME = "MB Bank";     // Tên hiển thị
 
             const buildQrUrl = (amount, content) => {
@@ -912,10 +1187,15 @@ ${change > 0 ? "" : ""}
             };
 
             const Icon = window.Icon;
+            const btnBase = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+            const btnNeutral = `${btnBase} border border-slate-300 bg-white text-slate-700 hover:bg-slate-100`;
+            const btnPrimary = `${btnBase} bg-slate-800 text-white hover:bg-slate-900`;
+            const btnSuccess = `${btnBase} bg-emerald-600 text-white hover:bg-emerald-700`;
+            const btnDanger = `${btnBase} bg-rose-600 text-white hover:bg-rose-700`;
 
             return (
-                <div className="max-w-4xl mx-auto p-4">
-                    <div className="bg-white rounded-3xl shadow-xl overflow-hidden">
+                <div className="max-w-5xl mx-auto p-4 bg-slate-100/80">
+                    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
 
                         {/* Header */}
                         <div className="px-6 py-6 border-b bg-slate-50 flex items-center justify-between">
@@ -924,17 +1204,17 @@ ${change > 0 ? "" : ""}
                                 <p className="text-slate-500">Quản lý phòng karaoke và tạo hoá đơn dịch vụ</p>
                             </div>
                             <div className="flex gap-3">
-                                <button onClick={load} className="px-4 py-2.5 rounded-2xl border border-slate-200 hover:bg-white flex items-center gap-2">
+                                <button onClick={load} className={btnNeutral}>
                                     <Icon name="refresh" /> Tải lại
                                 </button>
-                                <button onClick={openAddModal} className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl flex items-center gap-2">
+                                <button onClick={openAddModal} className={btnPrimary}>
                                     + Thêm phòng
                                 </button>
                             </div>
                         </div>
 
                         {error && <div className="mx-6 mt-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl">{error}</div>}
-                        {success && <div className="mx-6 mt-4 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl">{success}</div>}
+                        {success && <div className="mx-6 mt-4 p-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-2xl">{success}</div>}
 
                         {/* Filter */}
                         <div className="p-6 border-b flex flex-col md:flex-row gap-4 bg-white">
@@ -970,7 +1250,8 @@ ${change > 0 ? "" : ""}
                                         const canEdit = r.status !== "occupied";
                                         let endTime = null;
                                         if (r.current_order_id && r.status === "occupied") {
-                                            const order = orders.find(o => String(o.code) === String(r.current_order_id));
+                                            // Fix: Check nếu orderByCodeMap là Map trước khi gọi .get()
+                                            const order = (orderByCodeMap && typeof orderByCodeMap.get === 'function') ? orderByCodeMap.get(String(r.current_order_id)) : null;
                                             if (order && order.endTime) {
                                                 endTime = order.endTime;
                                             }
@@ -996,7 +1277,7 @@ ${change > 0 ? "" : ""}
                                                     {r.status === "available" && (
                                                         <button
                                                             onClick={() => openOrderModal(r.id)}
-                                                            className="px-5 py-2 text-sm font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-2xl"
+                                                            className="px-5 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl"
                                                         >
                                                             💳 Soạn đơn
                                                         </button>
@@ -1004,7 +1285,7 @@ ${change > 0 ? "" : ""}
                                                     {r.status === "occupied" && (
                                                         <button
                                                             onClick={() => openRoomDetail(r)}
-                                                            className="px-5 py-2 text-sm font-medium bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-2xl"
+                                                            className="px-5 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl"
                                                         >
                                                             📋 Chi tiết
                                                         </button>
@@ -1020,7 +1301,7 @@ ${change > 0 ? "" : ""}
                                                     {canEdit && (
                                                         <button
                                                             onClick={() => openEditModal(r)}
-                                                            className="px-5 py-2 text-sm font-medium border border-indigo-200 hover:border-indigo-400 hover:text-indigo-600 rounded-2xl"
+                                                            className="px-5 py-2 text-sm font-medium border border-slate-300 hover:border-slate-400 hover:text-slate-700 rounded-2xl"
                                                         >
                                                             Sửa
                                                         </button>
@@ -1046,8 +1327,8 @@ ${change > 0 ? "" : ""}
 
                     {/* Add Room Modal */}
                     {showAddModal && (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div className="fixed inset-0 bg-slate-900/45 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden">
                                 <div className="px-6 pt-6 pb-4"><h2 className="text-2xl font-semibold">Thêm phòng mới</h2></div>
                                 <div className="px-6 space-y-5 pb-6">
                                     <div>
@@ -1076,8 +1357,8 @@ ${change > 0 ? "" : ""}
 
                     {/* Edit Room Modal */}
                     {showEditModal && (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div className="fixed inset-0 bg-slate-900/45 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-md overflow-hidden">
                                 <div className="px-6 pt-6 pb-4"><h2 className="text-2xl font-semibold">Chỉnh sửa phòng</h2></div>
                                 <div className="px-6 space-y-5 pb-6">
                                     <div>
@@ -1106,8 +1387,8 @@ ${change > 0 ? "" : ""}
 
                     {/* Delete Confirm Modal */}
                     {showDeleteConfirm && (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-                            <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full mx-4">
+                        <div className="fixed inset-0 bg-slate-900/45 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-sm w-full mx-4">
                                 <div className="p-6 text-center">
                                     <div className="mx-auto w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
                                         <Icon name="trash" className="text-3xl" />
@@ -1125,8 +1406,8 @@ ${change > 0 ? "" : ""}
 
                     {/* Status Change Confirm Modal */}
                     {showStatusConfirm && targetRoom && (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full mx-4">
+                        <div className="fixed inset-0 bg-slate-900/45 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-sm w-full mx-4">
                                 <div className="p-6 text-center">
                                     <h3 className="text-xl font-semibold">Xác nhận đổi trạng thái?</h3>
                                     <p className="mt-3 text-slate-600">
@@ -1144,8 +1425,8 @@ ${change > 0 ? "" : ""}
 
                     {/* Room Detail Modal - Order Management */}
                     {showOrderDetailModal && selectedRoomDetail && currentOrderDetail && (
-                        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
                                 {/* Header modal */}
                                 <div className="px-8 py-5 border-b flex items-center justify-between bg-slate-50">
                                     <div>
@@ -1155,13 +1436,13 @@ ${change > 0 ? "" : ""}
                                     <button onClick={closeOrderDetailModal} className="text-3xl leading-none text-slate-400 hover:text-slate-600">×</button>
                                 </div>
 
-                                <div className="flex-1 p-8 overflow-auto">
+                                <div className="flex-1 p-8 overflow-auto mb-6">
                                     {/* Nội dung modal chi tiết order */}
-                                    <div className="grid grid-cols-2 gap-8">
+                                    <div className="grid grid-cols-2 gap-8 mb-6">
                                         {/* Cột trái */}
-                                        <div>
+                                        <div className="flex flex-col">
                                             <h3 className="font-semibold mb-3">Hàng hoá</h3>
-                                            <div className="space-y-2 mb-6">
+                                            <div className="space-y-2 mb-4 min-h-[72px]">
                                                 {tempProducts.map(item => (
                                                     <div key={item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl">
                                                         <div>
@@ -1178,7 +1459,7 @@ ${change > 0 ? "" : ""}
                                                 ))}
                                             </div>
 
-                                            <h3 className="font-semibold mb-3">Thêm hàng hoá</h3>
+                                            <h3 className="font-semibold mb-3 mt-auto">Thêm hàng hoá</h3>
                                             <button
                                                 disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"}
                                                 onClick={() => {
@@ -1186,32 +1467,40 @@ ${change > 0 ? "" : ""}
                                                     setPickProductForOrder(null);
                                                     setShowAddProductToOrderModal(true);
                                                 }}
-                                                className="w-full px-4 py-2.5 rounded-2xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 font-medium disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed"
+                                                className={`w-full ${btnNeutral}`}
                                             >
                                                 + Thêm hàng hoá
                                             </button>
                                         </div>
 
                                         {/* Cột phải */}
-                                        <div>
+                                        <div className="flex flex-col">
                                             <h3 className="font-semibold mb-3">Tiếp viên</h3>
                                             {tempStaffs.length === 0 ? (
-                                                <div className="text-slate-400 text-sm mb-6">Chưa có tiếp viên nào</div>
+                                                <div className="text-slate-400 text-sm mb-4 min-h-[72px]">Chưa có tiếp viên nào</div>
                                             ) : (
-                                                <div className="space-y-3 mb-6">
+                                                <div className="space-y-3 mb-4 min-h-[72px]">
                                                     {orderDetailCalc.staffBreakdown.map(s => (
                                                         <div key={s.id} className="bg-slate-100 px-4 py-3 rounded-2xl">
                                                             <div className="flex items-center justify-between">
                                                                 <div className="flex-1">
                                                                     <div className="font-medium">{s.name}</div>
-                                                                    <div className="text-xs text-slate-500 mt-0.5">Giá/h: {Number(s.price_per_hour || 0).toLocaleString()}đ • Vào: {s.startTime ? new Date(s.startTime).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '—'}</div>
+                                                                    <div className="text-xs text-slate-500 mt-0.5">Giá/h: {Number(s.price_per_hour || 0).toLocaleString()}đ • Vào: {s.startTime ? new Date(s.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
                                                                 </div>
                                                                 <button disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"} onClick={() => removeStaffFromOrder(s.id)} className="text-rose-500 hover:text-rose-700 font-bold disabled:text-slate-300 disabled:cursor-not-allowed ml-2">×</button>
                                                             </div>
                                                             {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
-                                                                <div className="mt-2 flex justify-between text-xs bg-white rounded-xl px-3 py-1.5">
-                                                                    <span className="text-slate-500">⏱ {s.durationLabel}</span>
-                                                                    <span className="font-semibold text-purple-600">{s.money.toLocaleString()}đ</span>
+                                                                <div className="mt-2 space-y-2">
+                                                                    <div className="flex justify-between text-xs bg-white rounded-xl px-3 py-1.5">
+                                                                        <span className="text-slate-500">⏱ {s.durationLabel}</span>
+                                                                        <span className="font-semibold text-slate-700">{s.money.toLocaleString()}đ</span>
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => toggleStaffPause(s.id)}
+                                                                        className={s.isPaused ? btnSuccess : btnNeutral}
+                                                                    >
+                                                                        {s.isPaused ? "▶ Tiếp tục tính giờ tiếp viên" : "⏸ Dừng tính giờ tiếp viên"}
+                                                                    </button>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1219,11 +1508,11 @@ ${change > 0 ? "" : ""}
                                                 </div>
                                             )}
 
-                                            <h3 className="font-semibold mb-3">Thêm tiếp viên</h3>
+                                            <h3 className="font-semibold mb-3 mt-auto">Thêm tiếp viên</h3>
                                             <button
                                                 disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"}
                                                 onClick={() => setShowAddStaffToOrderModal(true)}
-                                                className="w-full px-4 py-2.5 rounded-2xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-600 font-medium disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed"
+                                                className={`w-full ${btnNeutral}`}
                                             >
                                                 + Thêm tiếp viên
                                             </button>
@@ -1232,19 +1521,16 @@ ${change > 0 ? "" : ""}
 
                                     {/* Thời gian sử dụng */}
                                     {currentOrderDetail?.paymentStatus === "Chưa thanh toán" && currentOrderDetail?.startTime && (
-                                        <div className="mb-8 text-center p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white">
-                                            <div className="text-sm opacity-90 mb-3">Thời gian sử dụng</div>
-                                            <div className="text-6xl font-mono font-bold">
-                                                {estimatedCalc.estimatedDuration}h
+                                        <div className="mb-4 mx-auto max-w-md text-center p-2.5 bg-slate-800 rounded-xl text-white">
+                                            <div className="text-[11px] text-slate-300 mb-1.5 tracking-wide">THỜI GIAN SỬ DỤNG</div>
+                                            <div className="text-3xl font-mono font-bold">
+                                                {estimatedCalc.estimatedDuration}
                                             </div>
-                                            <div className="text-xs opacity-75 mt-2">Từ {new Date(currentOrderDetail.startTime).toLocaleTimeString('vi-VN')} đến {currentOrderDetail.endTime ? new Date(currentOrderDetail.endTime).toLocaleTimeString('vi-VN') : 'hiện tại'}</div>
-                                            <div className="mt-4 flex gap-3">
+                                            <div className="text-[11px] text-slate-300 mt-1.5">Từ {new Date(currentOrderDetail.startTime).toLocaleTimeString('vi-VN')} đến {currentOrderDetail.endTime ? new Date(currentOrderDetail.endTime).toLocaleTimeString('vi-VN') : 'hiện tại'}</div>
+                                            <div className="mt-2.5 flex gap-2">
                                                 <button
                                                     onClick={togglePauseTime}
-                                                    className={`flex-1 py-2.5 rounded-xl font-semibold transition-all ${isPausedTime
-                                                        ? "bg-emerald-500 hover:bg-emerald-600 text-white"
-                                                        : "bg-orange-500 hover:bg-orange-600 text-white"
-                                                        }`}
+                                                    className={`flex-1 ${isPausedTime ? btnSuccess : btnNeutral}`}
                                                 >
                                                     {isPausedTime ? "▶ Tiếp tục tính giờ" : "⏸ Dừng tính giờ"}
                                                 </button>
@@ -1253,13 +1539,13 @@ ${change > 0 ? "" : ""}
                                     )}
 
                                     {/* Tổng kết & Thanh toán */}
-                                    <div className="mt-10 bg-slate-50 p-6 rounded-3xl">
+                                    <div className="mt-6 bg-slate-50 p-4 rounded-2xl">
 
                                         {/* Bảng tổng kết chi tiết khi dừng tính giờ hoặc đang chạy */}
                                         {currentOrderDetail?.paymentStatus === "Chưa thanh toán" && (
                                             <div className="mb-6 rounded-2xl overflow-hidden border border-slate-200">
                                                 {/* Tiêu đề */}
-                                                <div className="bg-gradient-to-r from-slate-700 to-slate-800 text-white px-5 py-3 flex items-center gap-2">
+                                                <div className="bg-slate-800 text-white px-5 py-3 flex items-center gap-2">
                                                     <span className="text-sm font-bold">📋 CHI TIẾT THANH TOÁN {isPausedTime ? '(ĐÃ CHỐT GIỜ)' : '(ĐANG TÍNH)'}</span>
                                                 </div>
 
@@ -1282,39 +1568,41 @@ ${change > 0 ? "" : ""}
                                                 </div>
 
                                                 {/* Phòng */}
-                                                <div className="bg-amber-50 px-5 py-3 border-b border-amber-100">
+                                                <div className="bg-slate-100 px-5 py-3 border-b border-slate-200">
                                                     <div className="flex justify-between items-center">
-                                                        <span className="text-sm font-semibold text-amber-700">🏠 Tiền phòng ({estimatedCalc.estimatedDuration}h)</span>
-                                                        <span className="font-bold text-amber-700">{orderDetailCalc.roomTotal.toLocaleString()}đ</span>
+                                                        <span className="text-sm font-semibold text-slate-700">🏠 Tiền phòng ({estimatedCalc.estimatedDuration})</span>
+                                                        <span className="font-bold text-slate-700">{orderDetailCalc.roomTotal.toLocaleString()}đ</span>
                                                     </div>
-                                                    <div className="text-xs text-amber-600 mt-1">
-                                                        {currentOrderDetail?.startTime ? new Date(currentOrderDetail.startTime).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : ''}
+                                                    <div className="text-xs text-slate-500 mt-1">
+                                                        {currentOrderDetail?.startTime ? new Date(currentOrderDetail.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''}
                                                         {' → '}
-                                                        {isPausedTime ? new Date(pausedTimeMs).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : 'Hiện tại'}
+                                                        {isPausedTime ? new Date(pausedTimeMs).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Hiện tại'}
                                                     </div>
                                                 </div>
 
                                                 {/* Từng tiếp viên */}
                                                 {orderDetailCalc.staffBreakdown.length > 0 && (
-                                                    <div className="bg-purple-50 px-5 py-3 border-b border-purple-100">
-                                                        <div className="text-sm font-semibold text-purple-700 mb-2">👥 Tiếp viên ({orderDetailCalc.staffBreakdown.length} người)</div>
+                                                    <div className="bg-slate-100 px-5 py-3 border-b border-slate-200">
+                                                        <div className="text-sm font-semibold text-slate-700 mb-2">👥 Tiếp viên ({orderDetailCalc.staffBreakdown.length} người)</div>
                                                         <div className="space-y-2">
                                                             {orderDetailCalc.staffBreakdown.map(s => (
                                                                 <div key={s.id} className="flex justify-between items-center bg-white rounded-xl px-3 py-2">
                                                                     <div>
                                                                         <div className="text-sm font-medium text-slate-800">{s.name}</div>
                                                                         <div className="text-xs text-slate-400">
-                                                                            {s.startTime ? new Date(s.startTime).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : '—'}
+                                                                            {s.startTime ? new Date(s.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—'}
                                                                             {' → '}
-                                                                            {isPausedTime ? new Date(pausedTimeMs).toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'}) : 'Hiện tại'}
+                                                                            {s.isPaused && s.pauseStartedAt
+                                                                                ? new Date(s.pauseStartedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+                                                                                : 'Hiện tại'}
                                                                             {' (⏱ '}{s.durationLabel}{')'}
                                                                         </div>
                                                                     </div>
-                                                                    <span className="font-bold text-purple-600">{s.money.toLocaleString()}đ</span>
+                                                                    <span className="font-bold text-slate-700">{s.money.toLocaleString()}đ</span>
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        <div className="flex justify-between text-sm font-semibold text-purple-700 mt-2 pt-2 border-t border-purple-200">
+                                                        <div className="flex justify-between text-sm font-semibold text-slate-700 mt-2 pt-2 border-t border-purple-200">
                                                             <span>Tổng tiếp viên:</span>
                                                             <span>{orderDetailCalc.staffTotal.toLocaleString()}đ</span>
                                                         </div>
@@ -1322,7 +1610,7 @@ ${change > 0 ? "" : ""}
                                                 )}
 
                                                 {/* Tổng cộng */}
-                                                <div className="bg-emerald-700 px-5 py-4">
+                                                <div className="bg-slate-900 px-5 py-4">
                                                     <div className="flex justify-between items-center text-white">
                                                         <span className="text-base font-bold">💰 TỔNG THANH TOÁN</span>
                                                         <span className="text-2xl font-extrabold">{orderDetailCalc.grandTotal.toLocaleString()}đ</span>
@@ -1362,55 +1650,34 @@ ${change > 0 ? "" : ""}
                                         )}
 
                                         <div className="mt-6 space-y-4">
-                                            {/* Thanh toán ngân hàng / QR */}
-                                            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <label className="text-sm font-semibold text-blue-700">💳 Chuyển khoản / QR</label>
-                                                    {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
+                                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                                                <div className="text-sm font-semibold text-slate-700 mb-3">Phương thức thanh toán</div>
+                                                {currentOrderDetail?.paymentStatus !== "Đã thanh toán" ? (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                         <button
-                                                            onClick={() => openQrModal(orderDetailCalc.grandTotal - tempCashPayment > 0 ? orderDetailCalc.grandTotal - tempCashPayment : orderDetailCalc.grandTotal)}
-                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors"
+                                                            onClick={() => {
+                                                                setTempBankPayment(orderDetailCalc.grandTotal);
+                                                                setTempCashPayment(0);
+                                                                openQrModal(orderDetailCalc.grandTotal);
+                                                            }}
+                                                            className={`w-full ${btnPrimary}`}
                                                         >
-                                                            <span className="text-base">📷</span> Hiển thị QR
+                                                            💳 Thanh toán QR
                                                         </button>
-                                                    )}
-                                                </div>
-                                                <input
-                                                    disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"}
-                                                    type="number"
-                                                    value={tempBankPayment}
-                                                    onChange={e => setTempBankPayment(Number(e.target.value))}
-                                                    className="w-full rounded-xl border border-blue-200 px-4 py-2.5 disabled:bg-slate-100 disabled:cursor-not-allowed text-sm focus:outline-none focus:border-blue-400"
-                                                    placeholder="Số tiền chuyển khoản..."
-                                                />
-                                                {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
-                                                    <button
-                                                        onClick={() => setTempBankPayment(Math.max(0, orderDetailCalc.grandTotal - tempCashPayment))}
-                                                        className="mt-1.5 text-xs text-blue-600 hover:underline"
-                                                    >
-                                                        → Tự điền đủ số tiền còn lại
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {/* Thanh toán tiền mặt */}
-                                            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
-                                                <label className="block text-sm font-semibold text-emerald-700 mb-2">💵 Tiền mặt</label>
-                                                <input
-                                                    disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"}
-                                                    type="number"
-                                                    value={tempCashPayment}
-                                                    onChange={e => setTempCashPayment(Number(e.target.value))}
-                                                    className="w-full rounded-xl border border-emerald-200 px-4 py-2.5 disabled:bg-slate-100 disabled:cursor-not-allowed text-sm focus:outline-none focus:border-emerald-400"
-                                                    placeholder="Số tiền mặt..."
-                                                />
-                                                {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
-                                                    <button
-                                                        onClick={() => setTempCashPayment(Math.max(0, orderDetailCalc.grandTotal - tempBankPayment))}
-                                                        className="mt-1.5 text-xs text-emerald-600 hover:underline"
-                                                    >
-                                                        → Tự điền đủ số tiền còn lại
-                                                    </button>
+                                                        <button
+                                                            onClick={() => completePayment({
+                                                                bankPayment: 0,
+                                                                cashPayment: orderDetailCalc.grandTotal
+                                                            })}
+                                                            className={`w-full ${btnSuccess}`}
+                                                        >
+                                                            💵 Thanh toán tiền mặt
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-sm text-slate-600">
+                                                        Đã thanh toán: <span className="font-semibold">{Number(tempBankPayment || 0).toLocaleString("vi-VN")}đ</span> chuyển khoản, <span className="font-semibold">{Number(tempCashPayment || 0).toLocaleString("vi-VN")}đ</span> tiền mặt
+                                                    </div>
                                                 )}
                                             </div>
 
@@ -1438,27 +1705,24 @@ ${change > 0 ? "" : ""}
                                         <div className="flex flex-col sm:flex-row gap-3">
                                             <button
                                                 onClick={() => printInvoice(currentOrderDetail, orderDetailCalc)}
-                                                className="sm:w-auto px-4 py-3 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100 text-sm flex items-center justify-center gap-2"
+                                                className={`sm:w-auto ${btnNeutral}`}
                                             >
                                                 🖨️ In Bill
                                             </button>
-                                            <button onClick={saveOrderChanges} className="flex-1 py-3 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100 text-sm">
+                                            <button onClick={saveOrderChanges} className={`flex-1 ${btnNeutral}`}>
                                                 💾 Lưu thay đổi
-                                            </button>
-                                            <button onClick={completePayment} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl text-sm">
-                                                ✅ Thanh toán & Hoàn tất
                                             </button>
                                         </div>
                                     ) : (
                                         <div className="flex flex-col sm:flex-row gap-3">
                                             <button
                                                 onClick={() => printInvoice(currentOrderDetail, orderDetailCalc)}
-                                                className="sm:w-auto px-4 py-3 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100 text-sm flex items-center justify-center gap-2"
+                                                className={`sm:w-auto ${btnNeutral}`}
                                             >
                                                 🖨️ In Bill
                                             </button>
                                             <div className="flex-1 py-3 text-center text-emerald-600 font-semibold rounded-2xl bg-emerald-50 text-sm">✅ Đơn hàng đã chốt thanh toán</div>
-                                            <button onClick={deleteOrder} className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl text-sm">
+                                            <button onClick={deleteOrder} className={`flex-1 ${btnDanger}`}>
                                                 🗑️ Xoá đơn
                                             </button>
                                         </div>
@@ -1472,13 +1736,13 @@ ${change > 0 ? "" : ""}
                     {/* QR CHUYỂN KHOẢN MODAL */}
                     {/* ═══════════════════════════════════════════════════════════ */}
                     {showQrModal && (
-                        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
+                        <div className="fixed inset-0 bg-slate-900/55 flex items-center justify-center z-[60] p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-sm overflow-hidden">
                                 {/* Header */}
-                                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
+                                <div className="bg-slate-800 px-6 py-4 flex items-center justify-between">
                                     <div>
                                         <h3 className="text-white font-bold text-lg">📷 QR Chuyển khoản</h3>
-                                        <p className="text-blue-100 text-xs mt-0.5">{QR_BANK_NAME} — TK: {QR_ACCOUNT}</p>
+                                        <p className="text-slate-300 text-xs mt-0.5">{QR_BANK_NAME} — TK: {QR_ACCOUNT}</p>
                                     </div>
                                     <button onClick={() => setShowQrModal(false)} className="text-white/70 hover:text-white text-2xl leading-none">×</button>
                                 </div>
@@ -1528,7 +1792,7 @@ ${change > 0 ? "" : ""}
                                                     onClick={() => setQrAmount(v)}
                                                     className="flex-1 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-100 font-medium"
                                                 >
-                                                    {(v/1000)}k
+                                                    {(v / 1000)}k
                                                 </button>
                                             ))}
                                         </div>
@@ -1538,10 +1802,7 @@ ${change > 0 ? "" : ""}
                                 {/* Footer */}
                                 <div className="border-t px-6 py-4 flex gap-3 bg-slate-50">
                                     <button
-                                        onClick={() => {
-                                            setTempBankPayment(qrAmount);
-                                            setShowQrModal(false);
-                                        }}
+                                        onClick={() => completePayment({ bankPayment: qrAmount, cashPayment: 0 }, { closeQrAfter: true })}
                                         className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl text-sm"
                                     >
                                         ✓ Xác nhận đã nhận {qrAmount.toLocaleString("vi-VN")}đ
@@ -1556,10 +1817,10 @@ ${change > 0 ? "" : ""}
                     {/* ═════════════════════════════════════════════════════════════════════ */}
 
                     {showOrderModal && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-auto">
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-5xl max-h-[95vh] overflow-auto">
                                 {/* Header */}
-                                <div className="sticky top-0 px-8 py-6 border-b bg-gradient-to-r from-emerald-50 to-teal-50 flex justify-between items-center">
+                                <div className="sticky top-0 px-8 py-6 border-b bg-slate-50 flex justify-between items-center">
                                     <div>
                                         <h2 className="text-3xl font-bold text-slate-800">Soạn đơn hàng</h2>
                                         <p className="text-slate-600 mt-1">Tạo hoá đơn dịch vụ karaoke</p>
@@ -1569,13 +1830,7 @@ ${change > 0 ? "" : ""}
 
                                 {/* Content */}
                                 <div className="p-8">
-                                    {/* Phòng (Read-only) */}
-                                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl mb-6">
-                                        <div className="text-sm font-medium text-blue-600 mb-2">Phòng đã chọn</div>
-                                        <div className="text-lg font-bold text-blue-900">
-                                            {selectedRoom ? `${selectedRoom.name} (${fmt(selectedRoom.price_per_hour)}đ/giờ)` : "Chưa chọn"}
-                                        </div>
-                                    </div>
+
 
                                     {/* Main Grid Layout - Products & Customer/Staff */}
                                     <div className="grid grid-cols-3 gap-6 mb-6">
@@ -1595,10 +1850,10 @@ ${change > 0 ? "" : ""}
                                                                         key={p.id}
                                                                         onClick={() => setPickProductId(p.id)}
                                                                         className={`w-full text-left px-4 py-3 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50 transition-colors ${idx === products.length - 1 ? "border-b-0" : ""
-                                                                            } ${String(pickProductId) === String(p.id) ? "bg-indigo-50" : ""}`}
+                                                                            } ${String(pickProductId) === String(p.id) ? "bg-slate-100" : ""}`}
                                                                     >
                                                                         <span className="text-sm font-medium text-slate-800">{p.name}</span>
-                                                                        <span className={`text-sm font-semibold ${String(pickProductId) === String(p.id) ? "text-indigo-600" : "text-emerald-600"}`}>
+                                                                        <span className={`text-sm font-semibold ${String(pickProductId) === String(p.id) ? "text-slate-800" : "text-slate-700"}`}>
                                                                             {fmt(p.price)}đ
                                                                         </span>
                                                                     </button>
@@ -1606,7 +1861,7 @@ ${change > 0 ? "" : ""}
                                                             </div>
                                                         </div>
                                                         {pickProductId && (
-                                                            <div className="flex gap-2 items-center bg-indigo-50 p-3 rounded-lg border border-indigo-200">
+                                                            <div className="flex gap-2 items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
                                                                 <span className="text-sm font-medium text-slate-700 flex-1">
                                                                     {products.find(p => String(p.id) === pickProductId)?.name}
                                                                 </span>
@@ -1661,7 +1916,7 @@ ${change > 0 ? "" : ""}
                                                             <button onClick={() => removeItem(item.id)} className="text-rose-500 hover:text-rose-700 text-sm font-bold">✕</button>
                                                         </div>
                                                     ))}
-                                                    <div className="flex justify-end pt-2 text-sm font-semibold text-slate-800 bg-emerald-50 p-2 rounded">
+                                                    <div className="flex justify-end pt-2 text-sm font-semibold text-slate-800 bg-slate-100 p-2 rounded">
                                                         Tổng: {fmt(orderCalc.productTotal)}đ
                                                     </div>
                                                 </div>
@@ -1674,10 +1929,23 @@ ${change > 0 ? "" : ""}
                                             <div>
                                                 <h3 className="font-semibold text-slate-800 mb-3 text-sm">👤 Khách hàng</h3>
                                                 <button
-                                                    onClick={() => setShowCustomerModal(true)}
-                                                    className="w-full px-4 py-3 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-left transition-colors"
+                                                    onClick={async () => {
+                                                        // Load customers nếu chưa có
+                                                        if (!customers || customers.length === 0) {
+                                                            try {
+                                                                const custData = await RoomServer.getCustomers().catch(() => []);
+                                                                if (Array.isArray(custData)) {
+                                                                    setCustomers(custData);
+                                                                }
+                                                            } catch (e) {
+                                                                console.warn("Load customers failed:", e);
+                                                            }
+                                                        }
+                                                        setShowCustomerModal(true);
+                                                    }}
+                                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors"
                                                 >
-                                                    <div className="text-xs text-indigo-600 font-medium">Chọn khách quen</div>
+                                                    <div className="text-xs text-slate-600 font-medium">Chọn khách quen</div>
                                                     <div className="text-sm font-semibold text-slate-800 mt-1 truncate">
                                                         {selectedCustomer ? `${selectedCustomer.name} (-${Number(selectedCustomer.discountPercent || 0)}%)` : "Khách vãng lai"}
                                                     </div>
@@ -1701,7 +1969,7 @@ ${change > 0 ? "" : ""}
                                                 <h3 className="font-semibold text-slate-800 mb-3 text-sm">👥 Tiếp viên</h3>
                                                 <button
                                                     onClick={() => setShowStaffModal(true)}
-                                                    className="w-full px-4 py-3 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-left transition-colors text-sm font-medium text-purple-700"
+                                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors text-sm font-medium text-slate-700"
                                                 >
                                                     + Thêm tiếp viên
                                                 </button>
@@ -1725,26 +1993,26 @@ ${change > 0 ? "" : ""}
                                     <div className="col-span-3">
                                         <div className="space-y-4">
                                             {/* Tổng kết */}
-                                            <div className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl space-y-3">
+                                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
                                                 <h3 className="font-bold text-slate-800 text-sm">💰 Tính toán</h3>
                                                 <div className="space-y-2 text-xs">
                                                     <div className="flex justify-between">
                                                         <span className="text-slate-600">Hàng hoá:</span>
-                                                        <span className="font-semibold text-emerald-600">{fmt(orderCalc.productTotal)}đ</span>
+                                                        <span className="font-semibold text-slate-700">{fmt(orderCalc.productTotal)}đ</span>
                                                     </div>
                                                     <div className="flex justify-between">
                                                         <span className="text-slate-600">Tiếp viên:</span>
-                                                        <span className="font-semibold text-blue-600">{orderStaffs.length} người</span>
+                                                        <span className="font-semibold text-slate-700">{orderStaffs.length} người</span>
                                                     </div>
                                                     {orderCalc.discount > 0 && (
-                                                        <div className="flex justify-between text-rose-600 pt-1 border-t border-amber-200">
+                                                        <div className="flex justify-between text-rose-600 pt-1 border-t border-slate-200">
                                                             <span>Giảm:</span>
                                                             <span className="font-semibold">−{fmt(orderCalc.discount)}đ</span>
                                                         </div>
                                                     )}
-                                                    <div className="pt-2 border-t border-amber-200 flex justify-between text-sm font-bold text-amber-900">
+                                                    <div className="pt-2 border-t border-slate-200 flex justify-between text-sm font-bold text-slate-800">
                                                         <span>Tổng cộng:</span>
-                                                        <span className="text-lg text-amber-900">{fmt(orderCalc.grandTotal)}đ</span>
+                                                        <span className="text-lg text-slate-900">{fmt(orderCalc.grandTotal)}đ</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1777,9 +2045,9 @@ ${change > 0 ? "" : ""}
                     {/* Customer Selection Modal */}
                     {
                         showCustomerModal && (
-                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-auto">
-                                    <div className="sticky top-0 px-6 py-6 border-b bg-gradient-to-r from-indigo-50 to-purple-50 flex justify-between items-center">
+                            <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-lg max-h-[80vh] overflow-auto">
+                                    <div className="sticky top-0 px-6 py-6 border-b bg-slate-50 flex justify-between items-center">
                                         <h2 className="text-2xl font-bold text-slate-800">Chọn khách hàng</h2>
                                         <button onClick={() => setShowCustomerModal(false)} className="text-3xl text-slate-400 hover:text-slate-600">×</button>
                                     </div>
@@ -1801,7 +2069,10 @@ ${change > 0 ? "" : ""}
                                                 <button
                                                     key={c.id}
                                                     onClick={() => {
-                                                        setSelectedCustomerId(c.id);
+                                                        console.log("Button clicked - Selecting customer:", c);
+                                                        console.log("Before setSelectedCustomerId - selectedCustomerId was:", selectedCustomerId);
+                                                        setSelectedCustomerId(String(c.id));
+                                                        console.log("After setSelectedCustomerId - selectedCustomerId set to:", String(c.id));
                                                         setShowCustomerModal(false);
                                                     }}
                                                     className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${String(selectedCustomerId) === String(c.id)
@@ -1811,7 +2082,7 @@ ${change > 0 ? "" : ""}
                                                 >
                                                     <div className="flex items-center justify-between">
                                                         <div className="font-semibold text-slate-800">{c.name}</div>
-                                                        <div className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">-{Number(c.discountPercent || 0)}%</div>
+                                                        <div className="text-xs font-medium text-slate-700 bg-slate-100 px-2 py-1 rounded">-{Number(c.discountPercent || 0)}%</div>
                                                     </div>
                                                 </button>
                                             ))
@@ -1833,9 +2104,9 @@ ${change > 0 ? "" : ""}
                     {/* Staff Selection Modal */}
                     {
                         showStaffModal && (
-                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-auto">
-                                    <div className="sticky top-0 px-6 py-6 border-b bg-gradient-to-r from-purple-50 to-pink-50 flex justify-between items-center">
+                            <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-md max-h-[80vh] overflow-auto">
+                                    <div className="sticky top-0 px-6 py-6 border-b bg-slate-50 flex justify-between items-center">
                                         <h2 className="text-2xl font-bold text-slate-800">Chọn tiếp viên</h2>
                                         <button onClick={() => setShowStaffModal(false)} className="text-3xl text-slate-400 hover:text-slate-600">×</button>
                                     </div>
@@ -1878,9 +2149,9 @@ ${change > 0 ? "" : ""}
 
                     {/* Add Product to Order Modal */}
                     {showAddProductToOrderModal && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-auto">
-                                <div className="sticky top-0 px-6 py-6 border-b bg-gradient-to-r from-emerald-50 to-teal-50 flex justify-between items-center">
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-lg max-h-[80vh] overflow-auto">
+                                <div className="sticky top-0 px-6 py-6 border-b bg-slate-50 flex justify-between items-center">
                                     <h2 className="text-2xl font-bold text-slate-800">Thêm hàng hoá</h2>
                                     <button onClick={() => setShowAddProductToOrderModal(false)} className="text-3xl text-slate-400 hover:text-slate-600">×</button>
                                 </div>
@@ -1944,9 +2215,9 @@ ${change > 0 ? "" : ""}
 
                     {/* Add Staff to Order Modal */}
                     {showAddStaffToOrderModal && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-auto">
-                                <div className="sticky top-0 px-6 py-6 border-b bg-gradient-to-r from-purple-50 to-pink-50 flex justify-between items-center">
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-lg max-h-[80vh] overflow-auto">
+                                <div className="sticky top-0 px-6 py-6 border-b bg-slate-50 flex justify-between items-center">
                                     <h2 className="text-2xl font-bold text-slate-800">Thêm tiếp viên</h2>
                                     <button onClick={() => setShowAddStaffToOrderModal(false)} className="text-3xl text-slate-400 hover:text-slate-600">×</button>
                                 </div>
@@ -1961,7 +2232,7 @@ ${change > 0 ? "" : ""}
                                                     addStaffToCurrentOrder(staff);
                                                     setShowAddStaffToOrderModal(false);
                                                 }}
-                                                className="w-full text-left p-4 border border-slate-200 rounded-2xl hover:bg-purple-50 transition-colors"
+                                                className="w-full text-left p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-colors"
                                             >
                                                 <div className="font-semibold text-slate-800">{staff.name}</div>
                                                 <div className="text-sm text-slate-500 mt-1">{fmt(staff.price_per_hour)}đ/giờ</div>

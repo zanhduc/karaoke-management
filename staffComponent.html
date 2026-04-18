@@ -90,6 +90,8 @@
       const [staffs, setStaffs] = useState([]);
       const [isLoading, setIsLoading] = useState(true);
       const [error, setError] = useState("");
+      const STAFF_CACHE_KEY = "karaoke_staff_cache_v1";
+      const STAFF_CACHE_TTL_MS = 60 * 1000;
 
       const [name, setName] = useState("");
       const [phone, setPhone] = useState("");
@@ -103,14 +105,48 @@
         return true;
       }, [name, pricePerHour]);
 
+      const saveStaffCache = (nextStaffs) => {
+        try {
+          localStorage.setItem(STAFF_CACHE_KEY, JSON.stringify({
+            ts: Date.now(),
+            data: Array.isArray(nextStaffs) ? nextStaffs : [],
+          }));
+        } catch (e) {
+          console.warn("Save staff cache failed", e);
+        }
+      };
+
+      const readStaffCache = () => {
+        try {
+          const raw = localStorage.getItem(STAFF_CACHE_KEY);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || !parsed.ts || !Array.isArray(parsed.data)) return null;
+          const isExpired = Date.now() - Number(parsed.ts) > STAFF_CACHE_TTL_MS;
+          return { data: parsed.data, isExpired };
+        } catch (e) {
+          console.warn("Read staff cache failed", e);
+          return null;
+        }
+      };
+
       const load = async () => {
         setIsLoading(true);
         setError("");
+        const cached = readStaffCache();
+        if (cached?.data) {
+          setStaffs(cached.data);
+          setIsLoading(false);
+        }
         try {
           const data = await StaffServer.getStaffs();
-          setStaffs(Array.isArray(data) ? data : []);
+          const normalized = Array.isArray(data) ? data : [];
+          setStaffs(normalized);
+          saveStaffCache(normalized);
         } catch (e) {
-          setError(e?.message || "Không tải được danh sách tiếp viên.");
+          if (!cached?.data) {
+            setError(e?.message || "Không tải được danh sách tiếp viên.");
+          }
         } finally {
           setIsLoading(false);
         }
@@ -150,6 +186,14 @@
 
         try {
           await StaffServer.addStaff(newStaff);
+          saveStaffCache([
+            ...staffs,
+            {
+              ...newStaff,
+              status: "available",
+              current_room_id: "",
+            },
+          ]);
         } catch (e) {
           setStaffs(prev);
           setError(e?.message || "Thêm tiếp viên thất bại.");
@@ -184,6 +228,11 @@
 
         try {
           await StaffServer.updateStaff(patch);
+          saveStaffCache(
+            staffs.map((s) =>
+              String(s.id) === String(editingId) ? { ...s, ...patch } : s,
+            ),
+          );
         } catch (e) {
           setStaffs(prev);
           setError(e?.message || "Cập nhật tiếp viên thất bại.");
@@ -197,6 +246,7 @@
 
         try {
           await StaffServer.deleteStaff(id);
+          saveStaffCache(staffs.filter((s) => String(s.id) !== String(id)));
         } catch (e) {
           setStaffs(prev);
           setError(e?.message || "Xoá tiếp viên thất bại.");
@@ -226,6 +276,18 @@
           } else {
             await StaffServer.assignStaffToRoom(s.id, "");
           }
+          saveStaffCache(
+            staffs.map((x) =>
+              String(x.id) === String(s.id)
+                ? {
+                  ...x,
+                  status: nextStatus,
+                  current_room_id:
+                    nextStatus === "available" ? "" : x.current_room_id || "",
+                }
+                : x,
+            ),
+          );
         } catch (e) {
           setStaffs(prev);
           setError(e?.message || "Cập nhật trạng thái thất bại.");

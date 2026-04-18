@@ -216,17 +216,17 @@ function readAccountsFromSheet() {
  */
 function getAllAccounts() {
   var currentUser = getCurrentUser();
-  if (!currentUser.isLoggedIn || currentUser.role !== 'admin') {
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
     throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
   }
 
   var accounts = readAccountsFromSheet();
-  return accounts.map(function(acc) {
+  return accounts.map(function (acc) {
     return {
       id: acc.id,
       username: acc.username,
       role: acc.role,
-      name: acc.name
+      name: acc.name,
     };
   });
 }
@@ -236,7 +236,7 @@ function getAllAccounts() {
  */
 function addNewAccount(accountData) {
   var currentUser = getCurrentUser();
-  if (!currentUser.isLoggedIn || currentUser.role !== 'admin') {
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
     throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
   }
 
@@ -253,20 +253,24 @@ function addNewAccount(accountData) {
 
   try {
     var sheet = getAccountSheet(true);
-    var id = "ACC" + new Date().getTime().toString(36).toUpperCase(); 
-    
+    var id = "ACC" + new Date().getTime().toString(36).toUpperCase();
+
     sheet.appendRow([
       id,
       accountData.username,
       accountData.password,
-      accountData.role || 'staff',
-      accountData.name || ''
+      accountData.role || "staff",
+      accountData.name || "",
     ]);
 
     auditLog("Thêm tài khoản mới: " + accountData.username, "SUCCESS", "");
     return { success: true, message: "Thêm tài khoản thành công." };
   } catch (e) {
-    auditLog("Lỗi thêm tài khoản: " + accountData.username, "FAIL", e.message || e);
+    auditLog(
+      "Lỗi thêm tài khoản: " + accountData.username,
+      "FAIL",
+      e.message || e,
+    );
     throw e;
   }
 }
@@ -276,7 +280,7 @@ function addNewAccount(accountData) {
  */
 function changePasswordAdmin(username, newPassword) {
   var currentUser = getCurrentUser();
-  if (!currentUser.isLoggedIn || currentUser.role !== 'admin') {
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
     throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
   }
 
@@ -314,7 +318,7 @@ function changePasswordAdmin(username, newPassword) {
  */
 function deleteAccountAdmin(username) {
   var currentUser = getCurrentUser();
-  if (!currentUser.isLoggedIn || currentUser.role !== 'admin') {
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
     throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
   }
 
@@ -324,7 +328,7 @@ function deleteAccountAdmin(username) {
 
   // Không cho phép tài khoản đang đăng nhập tự tự xoá chính nó (tránh lỗi ngớ ngẩn)
   if (currentUser.username === username) {
-     throw new Error("Bạn không thể tự xoá tài khoản của chính mình!");
+    throw new Error("Bạn không thể tự xoá tài khoản của chính mình!");
   }
 
   try {
@@ -646,8 +650,10 @@ function assignStaffToRoom(staffId, roomId) {
 
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(staffId)) {
-        sheet.getRange(i + 1, STAFF_COL.STATUS).setValue("busy");
-        sheet.getRange(i + 1, STAFF_COL.ROOM_ID).setValue(roomId || "");
+        // Batch update thay vì 2 lần setValue
+        sheet
+          .getRange(i + 1, STAFF_COL.STATUS, 1, 2)
+          .setValues([["busy", roomId || ""]]);
         found = true;
         break;
       }
@@ -688,8 +694,10 @@ function releaseStaff(staffId) {
 
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(staffId)) {
-        sheet.getRange(i + 1, STAFF_COL.STATUS).setValue("available");
-        sheet.getRange(i + 1, STAFF_COL.ROOM_ID).setValue("");
+        // Batch update thay vì 2 lần setValue
+        sheet
+          .getRange(i + 1, STAFF_COL.STATUS, 1, 2)
+          .setValues([["available", ""]]);
         found = true;
         break;
       }
@@ -730,6 +738,28 @@ function getRoomSheet() {
   }
   return s;
 }
+function getRoomById(roomId) {
+  var data = getRoomSheet().getDataRange().getValues();
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (String(row[ROOM_COL.ID - 1]) === String(roomId)) {
+      return {
+        id: row[ROOM_COL.ID - 1],
+        name: row[ROOM_COL.NAME - 1],
+        type: row[ROOM_COL.TYPE - 1],
+        price_per_hour: Number(row[ROOM_COL.PRICE - 1]) || 0,
+        status: String(row[ROOM_COL.STATUS - 1] || "available").toLowerCase(),
+        start_time: row[ROOM_COL.START_TIME - 1]
+          ? new Date(row[ROOM_COL.START_TIME - 1]).toISOString()
+          : null,
+        current_order_id: row[ROOM_COL.CURRENT_ORDER_ID - 1] || "",
+      };
+    }
+  }
+  return null;
+}
+
 function getRooms() {
   var data = getRoomSheet().getDataRange().getValues();
   var res = [];
@@ -874,9 +904,10 @@ function startRoom(roomId, orderId) {
           );
           throw new Error("Phòng đang được sử dụng!");
         }
-        sheet.getRange(i + 1, ROOM_COL.STATUS).setValue("occupied");
-        sheet.getRange(i + 1, ROOM_COL.START_TIME).setValue(new Date());
-        sheet.getRange(i + 1, ROOM_COL.CURRENT_ORDER_ID).setValue(orderId);
+        // Batch update thay vì 3 lần setValue
+        sheet
+          .getRange(i + 1, ROOM_COL.STATUS, 1, 3)
+          .setValues([["occupied", new Date(), orderId]]);
         auditLog(
           "Phòng [START]: Mở phòng " + roomId + ", order " + orderId,
           "SUCCESS",
@@ -909,9 +940,10 @@ function endRoom(roomId) {
 
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][0]) === String(roomId)) {
-        sheet.getRange(i + 1, ROOM_COL.STATUS).setValue("available");
-        sheet.getRange(i + 1, ROOM_COL.START_TIME).setValue("");
-        sheet.getRange(i + 1, ROOM_COL.CURRENT_ORDER_ID).setValue("");
+        // Batch update thay vì 3 lần setValue
+        sheet
+          .getRange(i + 1, ROOM_COL.STATUS, 1, 3)
+          .setValues([["available", "", ""]]);
         found = true;
         break;
       }
@@ -1339,10 +1371,14 @@ function createOrder(orderData) {
       "",
     );
 
+    // Trả về room data ngay lập tức (đã được cập nhật bởi startRoom)
+    var updatedRoom = getRoomById(orderData.roomId);
+
     return {
       success: true,
       orderCode: orderCode,
       message: "Tạo đơn hàng thành công",
+      room: updatedRoom, // Trả về room data để frontend update ngay không cần wait
     };
   } catch (e) {
     auditLog(
@@ -1355,9 +1391,9 @@ function createOrder(orderData) {
 }
 
 /**
- * Lấy danh sách đơn hàng (mới nhất lên trên)
+ * Lấy danh sách đơn hàng (mới nhất lên trên) - TỐI ƯU: default limit 50
  */
-function getOrders(limit = 100) {
+function getOrders(limit = 50, roomMap = null) {
   try {
     var sheet = getOrderSheet();
     if (!sheet) {
@@ -1430,7 +1466,10 @@ function getOrders(limit = 100) {
         products: productsData,
         staffs: staffsData,
         roomId: row[ORDER_COL.ROOM_ID - 1],
-        roomName: getRoomNameById(row[ORDER_COL.ROOM_ID - 1]),
+        roomName:
+          roomMap && roomMap[row[ORDER_COL.ROOM_ID - 1]]
+            ? roomMap[row[ORDER_COL.ROOM_ID - 1]]
+            : "Phòng " + row[ORDER_COL.ROOM_ID - 1],
         grandTotal: row[ORDER_COL.GRAND_TOTAL - 1],
         bankPayment: row[ORDER_COL.BANK_PAYMENT - 1],
         cashPayment: row[ORDER_COL.CASH_PAYMENT - 1],
@@ -1635,7 +1674,7 @@ function deleteOrder(orderCode) {
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
         roomId = data[i][ORDER_COL.ROOM_ID - 1];
-        
+
         var staffsData = data[i][ORDER_COL.STAFFS - 1];
         try {
           if (typeof staffsData === "string" && staffsData) {
@@ -1661,7 +1700,11 @@ function deleteOrder(orderCode) {
           try {
             releaseStaff(staffs[s].id);
           } catch (e) {
-            auditLog(`Giải phóng nhân viên ${staffs[s].id} thất bại khi xoá order`, "FAIL", e.message || e);
+            auditLog(
+              `Giải phóng nhân viên ${staffs[s].id} thất bại khi xoá order`,
+              "FAIL",
+              e.message || e,
+            );
           }
         }
       }
@@ -1675,14 +1718,21 @@ function deleteOrder(orderCode) {
         for (var r = 1; r < roomData.length; r++) {
           if (String(roomData[r][ROOM_COL.ID - 1]) === String(roomId)) {
             // Chỉ giải phóng phòng nếu phòng đó đang gắn với đúng orderCode này
-            if (String(roomData[r][ROOM_COL.CURRENT_ORDER_ID - 1]) === String(orderCode)) {
+            if (
+              String(roomData[r][ROOM_COL.CURRENT_ORDER_ID - 1]) ===
+              String(orderCode)
+            ) {
               endRoom(roomId);
             }
             break;
           }
         }
       } catch (e) {
-         auditLog(`Giải phóng phòng ${roomId} thất bại khi xoá order`, "FAIL", e.message || e);
+        auditLog(
+          `Giải phóng phòng ${roomId} thất bại khi xoá order`,
+          "FAIL",
+          e.message || e,
+        );
       }
     }
 
@@ -1825,13 +1875,16 @@ function markOrderAsPaid(orderCode, paymentData) {
         var staffTotal = 0;
         if (staffs && Array.isArray(staffs)) {
           for (var k = 0; k < staffs.length; k++) {
-            var staffStart = staffs[k].startTime ? new Date(staffs[k].startTime) : startTime;
+            var staffStart = staffs[k].startTime
+              ? new Date(staffs[k].startTime)
+              : startTime;
             var staffDurationMs = endTime.getTime() - staffStart.getTime();
             if (staffDurationMs < 0) staffDurationMs = 0;
             var staffDurationMinutes = staffDurationMs / (1000 * 60);
 
             staffTotal +=
-              ((Number(staffs[k].price_per_hour) || 0) / 60) * staffDurationMinutes;
+              ((Number(staffs[k].price_per_hour) || 0) / 60) *
+              staffDurationMinutes;
           }
         }
 
@@ -1974,25 +2027,56 @@ function checkOrdersNearingEnd() {
 
 /**
  * Lấy toàn bộ dữ liệu (Room, Order, Product, Staff, Customer) trong 1 lần
+ * TỐI ƯU: Gọi một lần thay vì 5 lần
  */
 function getUnifiedRoomData() {
-  return {
-    rooms: getRooms(),
-    orders: getOrders(),
-    products: getProducts(),
-    staffs: getStaffs(),
-    customers: getCustomers()
-  };
+  try {
+    return {
+      rooms: getRooms() || [],
+      orders: getOrders(50) || [],
+      products: getProducts() || [],
+      staffs: getStaffs() || [],
+      customers: getCustomers() || [],
+    };
+  } catch (e) {
+    Logger.log("ERROR in getUnifiedRoomData: " + e.message);
+    auditLog("getUnifiedRoomData error", "FAIL", e.message);
+    return {
+      rooms: [],
+      orders: [],
+      products: [],
+      staffs: [],
+      customers: [],
+    };
+  }
 }
 
 /**
- * Lấy dữ liệu rút gọn
+ * Lấy dữ liệu rút gọn (chỉ Room và Order) - dùng cho refresh nhanh
+ * TỐI ƯU: Chỉ load 2 sheet thay vì 5 sheets
  */
 function getRoomAndOrderData() {
-  return {
-    rooms: getRooms(),
-    orders: getOrders()
-  };
+  try {
+    // Build room map once instead of calling getRooms for each order
+    var rooms = getRooms() || [];
+    var roomMap = {};
+    for (var i = 0; i < rooms.length; i++) {
+      roomMap[rooms[i].id] = rooms[i].name;
+    }
+
+    var orders = getOrders(50, roomMap) || [];
+    return {
+      rooms: rooms,
+      orders: orders,
+    };
+  } catch (e) {
+    Logger.log("ERROR in getRoomAndOrderData: " + e.message);
+    auditLog("getRoomAndOrderData error", "FAIL", e.message);
+    return {
+      rooms: [],
+      orders: [],
+    };
+  }
 }
 
 // ============ ROUTES ============
