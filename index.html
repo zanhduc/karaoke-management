@@ -1,607 +1,684 @@
 <!doctype html>
 <html lang="vi">
+  <head>
+    <base target="_top" />
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Quản Lý Quán</title>
 
-<head>
-  <base target="_top" />
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Đăng Nhập Quản Lý Kho</title>
+    <!-- Preconnect DNS+TLS sớm -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com" />
 
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com/3.3.5?plugins=forms,typography"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+    <!-- React (production, minified) — từ jsdelivr (nhanh hơn unpkg ở VN) -->
+    <script
+      crossorigin
+      src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"
+    ></script>
 
-  <script>
-    tailwind.config = {
-      darkMode: "class",
-      theme: {
-        extend: {
-          colors: {
-            primary: "#6366f1",
-            "background-light": "#f8fafc",
-            "background-dark": "#0b1220",
+    <!-- Babel — defer để không chặn render ban đầu -->
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"
+      onload="
+        window.__babelReady = true;
+        document.dispatchEvent(new Event('babel-ready'));
+      "
+    ></script>
+
+    <!-- Tailwind CSS (runtime) -->
+    <script src="https://cdn.tailwindcss.com/3.3.5?plugins=forms,typography"></script>
+
+    <!-- Google Fonts — display=swap không chặn render -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/icon?family=Material+Icons+Round"
+      rel="stylesheet"
+    />
+
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#6366f1",
+              "background-light": "#f8fafc",
+              "background-dark": "#0b1220",
+            },
+            fontFamily: { display: ["Inter", "sans-serif"] },
           },
-          fontFamily: { display: ["Inter", "sans-serif"] },
         },
-      },
-    };
-  </script>
+      };
+    </script>
 
-  <style>
-    body {
-      font-family: "Inter", sans-serif;
-      background: #f8fafc;
-      margin: 0;
-      padding: 0;
-    }
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background: #f8fafc;
+        margin: 0;
+        padding: 0;
+      }
 
-    /* Mobile sidebar animation */
-    .sidebar-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.5);
-      z-index: 40;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s ease;
-    }
-    .sidebar-overlay.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-    @media (max-width: 767px) {
-      .mobile-sidebar {
+      /* Loading spinner hiển thị tức thì khi tải */
+      .app-loader {
         position: fixed;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        z-index: 50;
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
-        width: 260px;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        z-index: 9999;
+        transition: opacity 0.3s ease;
       }
-      .mobile-sidebar.open {
-        transform: translateX(0);
+      .app-loader.hide {
+        opacity: 0;
+        pointer-events: none;
       }
-    }
-  </style>
-</head>
-
-<body>
-  <?!= include('staffComponent'); ?>
-  <?!= include('productComponent'); ?>
-  <?!= include('roomComponent'); ?>
-  <?!= include('dashboardComponent'); ?>
-  <?!= include('createOrderComponent.html'); ?>
-  <?!= include('orderManagement.html'); ?>
-  <?!= include('customerManager.html'); ?>
-  <script type="text/babel">
-    // ============ SHARED REACT HOOKS ============
-    window.ReactShared = {
-      useState: React.useState,
-      useEffect: React.useEffect,
-      useRef: React.useRef,
-      useMemo: React.useMemo,
-      useCallback: React.useCallback,
-    };
-
-    // ============ AUTH CONTEXT ============
-    const AuthContext = React.createContext(null);
-
-    // Auth Server Bridge
-    const AuthServer = {
-      isLocal: !window.google || !google.script || !google.script.run,
-      login: function (username, password) {
-        if (this.isLocal) {
-          return new Promise((resolve) => {
-            setTimeout(() => {
-              if (username === "admin" && password === "admin123") {
-                resolve({
-                  success: true,
-                  role: "admin",
-                  name: "Quản trị viên",
-                });
-              } else if (username === "staff" && password === "123456") {
-                resolve({ success: true, role: "staff", name: "Nhân viên" });
-              } else {
-                resolve({
-                  success: false,
-                  message: "Sai tên đăng nhập hoặc mật khẩu!",
-                });
-              }
-            }, 500);
-          });
-        } else {
-          return new Promise((resolve, reject) => {
-            google.script.run
-              .withSuccessHandler(resolve)
-              .withFailureHandler(reject)
-              .login(username, password);
-          });
+      .app-loader .spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      .app-loader .text {
+        color: white;
+        margin-top: 16px;
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0.9;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
         }
-      },
-    };
+      }
 
-    // ============ AUTH PROVIDER ============
-    const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 ngày
+      /* Mobile sidebar animation */
+      .sidebar-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 40;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+      .sidebar-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      @media (max-width: 767px) {
+        .mobile-sidebar {
+          position: fixed;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          z-index: 50;
+          transform: translateX(-100%);
+          transition: transform 0.3s ease;
+          width: 260px;
+        }
+        .mobile-sidebar.open {
+          transform: translateX(0);
+        }
+      }
+    </style>
+  </head>
 
-    function AuthProvider({ children }) {
-      const [user, setUser] = React.useState(() => {
-        const saved = localStorage.getItem("authUser");
-        if (saved) {
-          const userData = JSON.parse(saved);
-          const loginTime = new Date(userData.loginTime).getTime();
-          if (Date.now() - loginTime > SESSION_EXPIRY_MS) {
-            localStorage.removeItem("authUser");
-            return null;
+  <body>
+    <!-- Loading spinner hiển thị ngay lập tức -->
+    <div id="app-loader" class="app-loader">
+      <div class="spinner"></div>
+      <div class="text">Đang tải ứng dụng...</div>
+    </div>
+    <div id="app-root"></div>
+
+    <?!= include('staffComponent'); ?> <?!= include('productComponent'); ?> <?!=
+    include('dashboardComponent'); ?> <?!=
+    include('roomOrderIntegratedComponent'); ?> <?!=
+    include('orderManagement'); ?> <?!= include('customerManager'); ?>
+    <script type="text/babel">
+      // ============ SHARED REACT HOOKS ============
+      window.ReactShared = {
+        useState: React.useState,
+        useEffect: React.useEffect,
+        useRef: React.useRef,
+        useMemo: React.useMemo,
+        useCallback: React.useCallback,
+      };
+
+      // ============ AUTH CONTEXT ============
+      const AuthContext = React.createContext(null);
+
+      // Auth Server Bridge
+      const AuthServer = {
+        isLocal: !window.google || !google.script || !google.script.run,
+        login: function (username, password) {
+          if (this.isLocal) {
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                if (username === "admin" && password === "admin123") {
+                  resolve({
+                    success: true,
+                    role: "admin",
+                    name: "Quản trị viên",
+                  });
+                } else if (username === "staff" && password === "123456") {
+                  resolve({ success: true, role: "staff", name: "Nhân viên" });
+                } else {
+                  resolve({
+                    success: false,
+                    message: "Sai tên đăng nhập hoặc mật khẩu!",
+                  });
+                }
+              }, 500);
+            });
+          } else {
+            return new Promise((resolve, reject) => {
+              google.script.run
+                .withSuccessHandler(resolve)
+                .withFailureHandler(reject)
+                .login(username, password);
+            });
           }
-          return userData;
-        }
-        return null;
-      });
+        },
+      };
 
-      React.useEffect(() => {
-        const checkExpiry = () => {
-          if (user && user.loginTime) {
-            const loginTime = new Date(user.loginTime).getTime();
-            if (Date.now() - loginTime > SESSION_EXPIRY_MS) logout();
+      // ============ AUTH PROVIDER ============
+      const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 1 ngày
+
+      function AuthProvider({ children }) {
+        const [user, setUser] = React.useState(() => {
+          const saved = localStorage.getItem("authUser");
+          if (saved) {
+            const userData = JSON.parse(saved);
+            const loginTime = new Date(userData.loginTime).getTime();
+            if (Date.now() - loginTime > SESSION_EXPIRY_MS) {
+              localStorage.removeItem("authUser");
+              return null;
+            }
+            return userData;
+          }
+          return null;
+        });
+
+        React.useEffect(() => {
+          const checkExpiry = () => {
+            if (user && user.loginTime) {
+              const loginTime = new Date(user.loginTime).getTime();
+              if (Date.now() - loginTime > SESSION_EXPIRY_MS) logout();
+            }
+          };
+          const interval = setInterval(checkExpiry, 60000);
+          return () => clearInterval(interval);
+        }, [user]);
+
+        const login = async (username, password) => {
+          const result = await AuthServer.login(username, password);
+          if (result.success) {
+            const userData = {
+              username,
+              role: result.role,
+              name: result.name,
+              loginTime: new Date().toISOString(),
+            };
+            localStorage.setItem("authUser", JSON.stringify(userData));
+            setUser(userData);
+          }
+          return result;
+        };
+
+        const logout = () => {
+          localStorage.removeItem("authUser");
+          setUser(null);
+          if (!AuthServer.isLocal && google.script.run.logout) {
+            google.script.run.logout();
           }
         };
-        const interval = setInterval(checkExpiry, 60000);
-        return () => clearInterval(interval);
-      }, [user]);
 
-      const login = async (username, password) => {
-        const result = await AuthServer.login(username, password);
-        if (result.success) {
-          const userData = {
-            username,
-            role: result.role,
-            name: result.name,
-            loginTime: new Date().toISOString(),
-          };
-          localStorage.setItem("authUser", JSON.stringify(userData));
-          setUser(userData);
-        }
-        return result;
+        return (
+          <AuthContext.Provider value={{ user, login, logout }}>
+            {children}
+          </AuthContext.Provider>
+        );
+      }
+
+      const useAuth = () => React.useContext(AuthContext);
+
+      // ============ ICON COMPONENT ============
+      window.Icon = function ({ name, className = "" }) {
+        return (
+          <span className={`material-icons-round ${className}`}>{name}</span>
+        );
       };
 
-      const logout = () => {
-        localStorage.removeItem("authUser");
-        setUser(null);
-        if (!AuthServer.isLocal && google.script.run.logout) {
-          google.script.run.logout();
-        }
-      };
-
-      return (
-        <AuthContext.Provider value={{ user, login, logout }}>
-          {children}
-        </AuthContext.Provider>
-      );
-    }
-
-    const useAuth = () => React.useContext(AuthContext);
-
-    // ============ ICON COMPONENT ============
-    window.Icon = function ({ name, className = "" }) {
-      return (
-        <span className={`material-icons-round ${className}`}>{name}</span>
-      );
-    };
-
-    /* ============ CÁC COMPONENT KHÔNG DÙNG ĐÃ BỊ COMMENT ============ */
-    /*
+      /* ============ CÁC COMPONENT KHÔNG DÙNG ĐÃ BỊ COMMENT ============ */
+      /*
     window.PremiumDatePicker = function (...) { ... }
     window.CustomSelect = function (...) { ... }
     */
 
-    // ============ LOGIN APP COMPONENT ============
-    function LoginApp() {
-      const { login } = useAuth();
-      const [username, setUsername] = React.useState("");
-      const [password, setPassword] = React.useState("");
-      const [showPassword, setShowPassword] = React.useState(false);
-      const [isLoading, setIsLoading] = React.useState(false);
-      const [error, setError] = React.useState("");
-      const [shake, setShake] = React.useState(false);
+      // ============ LOGIN APP COMPONENT ============
+      function LoginApp() {
+        const { login } = useAuth();
+        const [username, setUsername] = React.useState("");
+        const [password, setPassword] = React.useState("");
+        const [showPassword, setShowPassword] = React.useState(false);
+        const [isLoading, setIsLoading] = React.useState(false);
+        const [error, setError] = React.useState("");
+        const [shake, setShake] = React.useState(false);
 
-      const handleLogin = async (e) => {
-        e.preventDefault();
-        if (!username.trim() || !password.trim()) {
-          setError("Vui lòng nhập đầy đủ thông tin!");
-          setShake(true);
-          setTimeout(() => setShake(false), 500);
-          return;
-        }
-
-        setIsLoading(true);
-        setError("");
-
-        try {
-          const result = await login(username, password);
-          if (!result.success) {
-            setError(result.message || "Đăng nhập thất bại!");
+        const handleLogin = async (e) => {
+          e.preventDefault();
+          if (!username.trim() || !password.trim()) {
+            setError("Vui lòng nhập đầy đủ thông tin!");
             setShake(true);
             setTimeout(() => setShake(false), 500);
+            return;
           }
-        } catch (err) {
-          setError("Lỗi kết nối: " + err.message);
-          setShake(true);
-          setTimeout(() => setShake(false), 500);
-        } finally {
-          setIsLoading(false);
-        }
-      };
 
-      const Icon = window.Icon;
+          setIsLoading(true);
+          setError("");
 
-      return (
-        <div
-          className="min-h-screen flex items-center justify-center p-4"
-          style={{
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          }}
-        >
+          try {
+            const result = await login(username, password);
+            if (!result.success) {
+              setError(result.message || "Đăng nhập thất bại!");
+              setShake(true);
+              setTimeout(() => setShake(false), 500);
+            }
+          } catch (err) {
+            setError("Lỗi kết nối: " + err.message);
+            setShake(true);
+            setTimeout(() => setShake(false), 500);
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        const Icon = window.Icon;
+
+        return (
           <div
-            className={`w-full max-w-md rounded-3xl shadow-2xl p-8 bg-white/95 backdrop-blur ${shake ? "animate-shake" : ""}`}
+            className="min-h-screen flex items-center justify-center p-4"
             style={{
-              animation: shake
-                ? "shake 0.5s ease-in-out"
-                : "fadeIn 0.5s ease-out",
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             }}
           >
-            {/* Logo & Header */}
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
-                <Icon name="inventory_2" className="text-4xl text-white" />
-              </div>
-              <h1 className="text-2xl font-bold text-gray-800">
-                Quản Lý Quán
-              </h1>
-              <p className="text-gray-500 mt-2">Đăng nhập để tiếp tục</p>
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-red-600">
-                <Icon name="error" className="text-lg" />
-                <span className="text-sm font-medium">{error}</span>
-              </div>
-            )}
-
-            {/* Login Form */}
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-2">
-                  Tên đăng nhập
-                </label>
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                    <Icon name="person" className="text-xl" />
-                  </div>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
-                    placeholder="Nhập tên đăng nhập..."
-                    autoComplete="username"
-                  />
+            <div
+              className={`w-full max-w-md rounded-3xl shadow-2xl p-8 bg-white/95 backdrop-blur ${shake ? "animate-shake" : ""}`}
+              style={{
+                animation: shake
+                  ? "shake 0.5s ease-in-out"
+                  : "fadeIn 0.5s ease-out",
+              }}
+            >
+              {/* Logo & Header */}
+              <div className="text-center mb-8">
+                <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
+                  <Icon name="inventory_2" className="text-4xl text-white" />
                 </div>
+                <h1 className="text-2xl font-bold text-gray-800">
+                  Quản Lý Quán
+                </h1>
+                <p className="text-gray-500 mt-2">Đăng nhập để tiếp tục</p>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-2">
-                  Mật khẩu
-                </label>
-                <div className="relative">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                    <Icon name="lock" className="text-xl" />
-                  </div>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-12 pr-12 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
-                    placeholder="Nhập mật khẩu..."
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <Icon
-                      name={showPassword ? "visibility_off" : "visibility"}
-                      className="text-xl"
+              {/* Error Message */}
+              {error && (
+                <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-red-600">
+                  <Icon name="error" className="text-lg" />
+                  <span className="text-sm font-medium">{error}</span>
+                </div>
+              )}
+
+              {/* Login Form */}
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">
+                    Tên đăng nhập
+                  </label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                      <Icon name="person" className="text-xl" />
+                    </div>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
+                      placeholder="Nhập tên đăng nhập..."
+                      autoComplete="username"
                     />
-                  </button>
+                  </div>
                 </div>
-              </div>
 
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-4 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-70 transition-all hover:-translate-y-0.5"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                }}
-              >
-                {isLoading ? (
-                  <>
-                    <Icon name="sync" className="text-xl animate-spin" /> Đang
-                    đăng nhập...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="login" className="text-xl" /> Đăng nhập
-                  </>
-                )}
-              </button>
-            </form>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-2">
+                    Mật khẩu
+                  </label>
+                  <div className="relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                      <Icon name="lock" className="text-xl" />
+                    </div>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full pl-12 pr-12 py-3.5 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:outline-none text-gray-700 font-medium transition-all"
+                      placeholder="Nhập mật khẩu..."
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <Icon
+                        name={showPassword ? "visibility_off" : "visibility"}
+                        className="text-xl"
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-4 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 disabled:opacity-70 transition-all hover:-translate-y-0.5"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  }}
+                >
+                  {isLoading ? (
+                    <>
+                      <Icon name="sync" className="text-xl animate-spin" /> Đang
+                      đăng nhập...
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="login" className="text-xl" /> Đăng nhập
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
           </div>
-        </div>
-      );
-    }
+        );
+      }
 
-    /* ============ ĐÃ COMMENT PHẦN CHUYỂN TRANG (MainApp) ============ */
-    /*
+      /* ============ ĐÃ COMMENT PHẦN CHUYỂN TRANG (MainApp) ============ */
+      /*
     function MainApp() { ... logic chuyển trang ở đây ... }
     */
 
-    // ============ MAIN APP MẪU (Thay thế tạm thời) ============
-    function DummyDashboard() {
-      const { user, logout } = useAuth();
-      return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
-          <h1 className="text-3xl font-bold text-green-600 mb-4">
-            Đăng nhập thành công!
-          </h1>
-          <p className="text-gray-700 mb-6">
-            Xin chào, {user.name} (Role: {user.role})
-          </p>
-          <button
-            onClick={logout}
-            className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-          >
-            Đăng xuất
-          </button>
-        </div>
-      );
-    }
-    function MainApp() {
-      const { user, logout } = useAuth();
-      const [sidebarOpen, setSidebarOpen] = React.useState(false);
-
-      const getInitialPage = () => {
-        try {
-          const p = new URLSearchParams(window.location.search).get("page");
-          if (p === "product") return "product";
-          if (p === "room") return "room";
-          if (p === "create-order") return "create-order";
-          if (p === "order-management") return "order-management";
-          if (p === "customer") return "customer";
-          if (p === "dashboard" && user.role === "admin") return "dashboard";
-          return user.role === "staff" ? "create-order" : "dashboard";
-        } catch (e) {
-          return "create-order";
-        }
-      };
-
-      const [page, setPage] = React.useState(getInitialPage);
-
-      const setPageAndUrl = (next) => {
-        setPage(next);
-        setSidebarOpen(false); // auto-close sidebar on mobile
-        try {
-          const url = new URL(window.location.href);
-          url.searchParams.set("page", next);
-          window.history.replaceState({}, "", url.toString());
-        } catch (e) {
-          // ignore
-        }
-      };
-
-      const StaffPage = window.StaffPage;
-      const ProductPage = window.ProductPage;
-      const RoomPage = window.RoomPage;
-      const DashboardPage = window.DashboardPage;
-      const CreateOrderPage = window.OrderPage;
-      const OrderManagementPage = window.OrderManagementPage;
-      const CustomerPage = window.CustomerPage;
-
-      const renderPage = () => {
-        if (page === "dashboard") {
-          if (!DashboardPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được DashboardPage. Kiểm tra file{" "}
-                <code>dashboardComponent.html</code> và include trong index.
-              </div>
-            );
-          }
-          return <DashboardPage />;
-        }
-        if (page === "create-order") {
-          if (!CreateOrderPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được CreateOrderPage. Kiểm tra file{" "}
-                <code>createOrderComponent.html</code> và include trong index.
-              </div>
-            );
-          }
-          return <CreateOrderPage />;
-        }
-        if (page === "order-management") {
-          if (!OrderManagementPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được OrderManagementPage. Kiểm tra file{" "}
-                <code>orderManagement.html</code> và include trong index.
-              </div>
-            );
-          }
-          return <OrderManagementPage />;
-        }
-        if (page === "customer") {
-          if (!CustomerPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được CustomerPage. Kiểm tra file{" "}
-                <code>customerManager.html</code> và include trong index.
-              </div>
-            );
-          }
-          return <CustomerPage />;
-        }
-        if (page === "staff") {
-          if (!StaffPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được StaffPage. Kiểm tra file{" "}
-                <code>staffComponent.html</code> và include trong index.
-              </div>
-            );
-          }
-          return <StaffPage />;
-        }
-        if (page === "product") {
-          if (!ProductPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được ProductPage. Kiểm tra{" "}
-                <code>productComponent.html</code>.
-              </div>
-            );
-          }
-          return <ProductPage />;
-        }
-        if (page === "room") {
-          if (!RoomPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được RoomPage. Trong Apps Script hãy thêm file{" "}
-                <code>roomComponent.html</code> (tên file đúng như vậy) và dòng{" "}
-                <code>include(&apos;roomComponent&apos;)</code> trong{" "}
-                <code>index.html</code>.
-              </div>
-            );
-          }
-          return <RoomPage />;
-        }
-        return <CreateOrderPage />;
-      };
-
-      // Sidebar menu items (reusable)
-      const NavButton = ({ targetPage, icon, label }) => (
-        <button
-          onClick={() => setPageAndUrl(targetPage)}
-          className={`w-full p-3 text-left rounded-xl mb-1 transition-colors flex items-center gap-3 text-sm ${
-            page === targetPage
-              ? "bg-indigo-100 text-indigo-700 font-semibold"
-              : "hover:bg-blue-50 text-slate-700"
-          }`}
-        >
-          <span className="text-lg">{icon}</span> {label}
-        </button>
-      );
-
-      const sidebarContent = (
-        <>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-blue-600">
-              Quản lý Quán
-            </h2>
-            {/* Close button cho mobile */}
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500"
-            >
-              ✕
-            </button>
-          </div>
-
-          <nav className="flex-1 overflow-auto">
-            {user.role === "admin" && (
-              <NavButton targetPage="dashboard" icon="📊" label="Dashboard" />
-            )}
-            <NavButton targetPage="create-order" icon="➕" label="Soạn đơn hàng" />
-            <NavButton targetPage="order-management" icon="📋" label="Quản lý Order" />
-            <NavButton targetPage="staff" icon="👩‍💼" label="Nhân viên" />
-            <NavButton targetPage="product" icon="🛒" label="Hàng hoá" />
-            <NavButton targetPage="room" icon="🏠" label="Phòng" />
-            <NavButton targetPage="customer" icon="👥" label="Khách hàng" />
-          </nav>
-
-          <div className="mt-auto pt-4 border-t border-slate-100">
-            <p className="text-xs text-gray-500 mb-3">
-              Logged as: <span className="font-semibold">{user.name}</span>
+      // ============ MAIN APP MẪU (Thay thế tạm thời) ============
+      function DummyDashboard() {
+        const { user, logout } = useAuth();
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
+            <h1 className="text-3xl font-bold text-green-600 mb-4">
+              Đăng nhập thành công!
+            </h1>
+            <p className="text-gray-700 mb-6">
+              Xin chào, {user.name} (Role: {user.role})
             </p>
             <button
               onClick={logout}
-              className="w-full bg-red-500 text-white p-2.5 rounded-xl hover:bg-red-600 transition-colors text-sm font-medium"
+              className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
             >
               Đăng xuất
             </button>
           </div>
-        </>
-      );
+        );
+      }
+      function MainApp() {
+        const { user, logout } = useAuth();
+        const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
-      return (
-        <div className="flex h-screen bg-blue-50">
-          {/* Mobile overlay */}
-          <div
-            className={`sidebar-overlay md:hidden ${sidebarOpen ? 'active' : ''}`}
-            onClick={() => setSidebarOpen(false)}
-          />
+        const getInitialPage = () => {
+          try {
+            const p = new URLSearchParams(window.location.search).get("page");
+            if (p === "product") return "product";
+            if (p === "room") return "room";
+            if (p === "order-management") return "order-management";
+            if (p === "customer") return "customer";
+            if (p === "dashboard" && user.role === "admin") return "dashboard";
+            return user.role === "staff" ? "room" : "dashboard";
+          } catch (e) {
+            return "room";
+          }
+        };
 
-          {/* Sidebar - desktop: static, mobile: slide-in */}
-          <div className={`mobile-sidebar md:relative md:translate-x-0 md:transition-none w-64 bg-white shadow-lg p-4 flex flex-col ${sidebarOpen ? 'open' : ''}`}>
-            {sidebarContent}
-          </div>
+        const [page, setPage] = React.useState(getInitialPage);
 
-          {/* Content */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            {/* Mobile header with hamburger */}
-            <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
+        const setPageAndUrl = (next) => {
+          setPage(next);
+          setSidebarOpen(false); // auto-close sidebar on mobile
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set("page", next);
+            window.history.replaceState({}, "", url.toString());
+          } catch (e) {
+            // ignore
+          }
+        };
+
+        const StaffPage = window.StaffPage;
+        const ProductPage = window.ProductPage;
+        const RoomPage = window.RoomPage;
+        const DashboardPage = window.DashboardPage;
+        const OrderManagementPage = window.OrderManagementPage;
+        const CustomerPage = window.CustomerPage;
+
+        const renderPage = () => {
+          if (page === "dashboard") {
+            if (!DashboardPage) {
+              return (
+                <div className="p-4 text-red-600">
+                  Lỗi: chưa tải được DashboardPage. Kiểm tra file{" "}
+                  <code>dashboardComponent.html</code> và include trong index.
+                </div>
+              );
+            }
+            return <DashboardPage />;
+          }
+
+          if (page === "order-management") {
+            if (!OrderManagementPage) {
+              return (
+                <div className="p-4 text-red-600">
+                  Lỗi: chưa tải được OrderManagementPage. Kiểm tra file{" "}
+                  <code>orderManagement.html</code> và include trong index.
+                </div>
+              );
+            }
+            return <OrderManagementPage />;
+          }
+          if (page === "customer") {
+            if (!CustomerPage) {
+              return (
+                <div className="p-4 text-red-600">
+                  Lỗi: chưa tải được CustomerPage. Kiểm tra file{" "}
+                  <code>customerManager.html</code> và include trong index.
+                </div>
+              );
+            }
+            return <CustomerPage />;
+          }
+          if (page === "staff") {
+            if (!StaffPage) {
+              return (
+                <div className="p-4 text-red-600">
+                  Lỗi: chưa tải được StaffPage. Kiểm tra file{" "}
+                  <code>staffComponent.html</code> và include trong index.
+                </div>
+              );
+            }
+            return <StaffPage />;
+          }
+          if (page === "product") {
+            if (!ProductPage) {
+              return (
+                <div className="p-4 text-red-600">
+                  Lỗi: chưa tải được ProductPage. Kiểm tra{" "}
+                  <code>productComponent.html</code>.
+                </div>
+              );
+            }
+            return <ProductPage />;
+          }
+          if (page === "room") {
+            if (!RoomPage) {
+              return (
+                <div className="p-4 text-red-600">
+                  Lỗi: chưa tải được RoomPage. Trong Apps Script hãy kiểm tra lại file{" "}
+                  <code>roomOrderIntegratedComponent</code> và
+                  dòng <code>include('roomOrderIntegratedComponent')</code>.
+                </div>
+              );
+            }
+            return <RoomPage />;
+          }
+          return <RoomPage />;
+        };
+
+        // Sidebar menu items (reusable)
+        const NavButton = ({ targetPage, icon, label }) => (
+          <button
+            onClick={() => setPageAndUrl(targetPage)}
+            className={`w-full p-3 text-left rounded-xl mb-1 transition-colors flex items-center gap-3 text-sm ${
+              page === targetPage
+                ? "bg-indigo-100 text-indigo-700 font-semibold"
+                : "hover:bg-blue-50 text-slate-700"
+            }`}
+          >
+            <span className="text-lg">{icon}</span> {label}
+          </button>
+        );
+
+        const sidebarContent = (
+          <>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-blue-600">Quản lý Quán</h2>
+              {/* Close button cho mobile */}
               <button
-                onClick={() => setSidebarOpen(true)}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
+                onClick={() => setSidebarOpen(false)}
+                className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500"
               >
-                <span className="material-icons-round text-slate-700">menu</span>
+                ✕
               </button>
-              <h1 className="text-lg font-bold text-slate-800 truncate">Quản lý Quán</h1>
             </div>
 
-            <div className="flex-1 p-3 md:p-6 overflow-auto">{renderPage()}</div>
+            <nav className="flex-1 overflow-auto">
+              {user.role === "admin" && (
+                <NavButton targetPage="dashboard" icon="📊" label="Dashboard" />
+              )}
+              <NavButton targetPage="room" icon="🏠" label="Phòng & Bán Hàng" />
+              <NavButton
+                targetPage="order-management"
+                icon="📋"
+                label="Lịch sử Order"
+              />
+              <NavButton targetPage="staff" icon="👩‍💼" label="Nhân viên" />
+              <NavButton targetPage="product" icon="🛒" label="Hàng hoá" />
+              <NavButton targetPage="customer" icon="👥" label="Khách hàng" />
+            </nav>
+
+            <div className="mt-auto pt-4 border-t border-slate-100">
+              <p className="text-xs text-gray-500 mb-3">
+                Logged as: <span className="font-semibold">{user.name}</span>
+              </p>
+              <button
+                onClick={logout}
+                className="w-full bg-red-500 text-white p-2.5 rounded-xl hover:bg-red-600 transition-colors text-sm font-medium"
+              >
+                Đăng xuất
+              </button>
+            </div>
+          </>
+        );
+
+        return (
+          <div className="flex h-screen bg-blue-50">
+            {/* Mobile overlay */}
+            <div
+              className={`sidebar-overlay md:hidden ${sidebarOpen ? "active" : ""}`}
+              onClick={() => setSidebarOpen(false)}
+            />
+
+            {/* Sidebar - desktop: static, mobile: slide-in */}
+            <div
+              className={`mobile-sidebar md:relative md:translate-x-0 md:transition-none w-64 bg-white shadow-lg p-4 flex flex-col ${sidebarOpen ? "open" : ""}`}
+            >
+              {sidebarContent}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              {/* Mobile header with hamburger */}
+              <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  <span className="material-icons-round text-slate-700">
+                    menu
+                  </span>
+                </button>
+                <h1 className="text-lg font-bold text-slate-800 truncate">
+                  Quản lý Quán
+                </h1>
+              </div>
+
+              <div className="flex-1 p-3 md:p-6 overflow-auto">
+                {renderPage()}
+              </div>
+            </div>
           </div>
-        </div>
+        );
+      }
+
+      // ============ APP ROOT ============
+      function AppRoot() {
+        const { user } = useAuth();
+
+        // Render trang Login nếu chưa đăng nhập, ngược lại render Dashboard tạm thời
+        return user ? <MainApp /> : <LoginApp />;
+      }
+
+      // ============ RENDER ============
+      ReactDOM.createRoot(document.getElementById("app-root")).render(
+        <AuthProvider>
+          <AppRoot />
+        </AuthProvider>,
       );
-    }
 
-    // ============ APP ROOT ============
-    function AppRoot() {
-      const { user } = useAuth();
-
-      // Render trang Login nếu chưa đăng nhập, ngược lại render Dashboard tạm thời
-      return user ? <MainApp /> : <LoginApp />;
-    }
-
-    // ============ RENDER ============
-    ReactDOM.createRoot(document.getElementById("app-root")).render(
-      <AuthProvider>
-        <AppRoot />
-      </AuthProvider>,
-    );
-  </script>
-
-  <div id="app-root"></div>
-</body>
-
+      // Ẩn loading spinner sau khi React render xong
+      requestAnimationFrame(() => {
+        const loader = document.getElementById("app-loader");
+        if (loader) {
+          loader.classList.add("hide");
+          setTimeout(() => loader.remove(), 400);
+        }
+      });
+    </script>
+  </body>
 </html>
