@@ -780,6 +780,137 @@
             const availableRooms = useMemo(() => rooms.filter(r => String(r.status).toLowerCase() === "available"), [rooms]);
             const availableStaffs = useMemo(() => staffs.filter(s => String(s.status).toLowerCase() === "available"), [staffs]);
 
+            // ─────────────────────────────────────────────────────────────
+            // PRINT INVOICE
+            // ─────────────────────────────────────────────────────────────
+            const printInvoice = (order, calcData) => {
+                if (!order) return;
+
+                const orderProducts = order.products
+                    ? (typeof order.products === "string" ? JSON.parse(order.products) : order.products)
+                    : tempProducts;
+                const orderStaffs = order.staffs
+                    ? (typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs)
+                    : tempStaffs;
+
+                const f = (n) => Number(n || 0).toLocaleString("vi-VN");
+                const rn = selectedRoomDetail?.name || order.roomName || ("Phòng " + order.roomId);
+                const isPaid = order.paymentStatus === "Đã thanh toán";
+
+                const prodTotal = orderProducts.reduce(
+                    (sum, p) => sum + Number(p.price) * (p.quantity || 1), 0
+                );
+                const roomTotal = calcData?.roomTotal ?? order.roomTotal ?? 0;
+                const grandTotal = calcData?.grandTotal ?? order.grandTotal ?? 0;
+                const bankPay = order.bankPayment || 0;
+                const cashPay = order.cashPayment || 0;
+                const change = (bankPay + cashPay) > grandTotal ? (bankPay + cashPay - grandTotal) : 0;
+
+                // Build rows
+                const R = (label, val, bold = false) =>
+                    `<tr><td>${label}</td><td class="right${bold ? " bold" : ""}">${val}</td></tr>`;
+
+                let prodRows = orderProducts.map(p =>
+                    `<tr><td class="indent">${p.name} ×${p.quantity || 1}</td><td class="right">${f(Number(p.price) * (p.quantity || 1))}đ</td></tr>`
+                ).join("");
+
+                let staffRows = orderStaffs.map(s =>
+                    `<tr><td class="indent">${s.name}</td><td class="right">${f(Number(s.price_per_hour) || 0)}đ/h</td></tr>`
+                ).join("");
+
+                let payBlock = "";
+                if (isPaid) {
+                    payBlock += R("Chuyển khoản:", f(bankPay) + "đ");
+                    payBlock += R("Tiền mặt:", f(cashPay) + "đ");
+                    if (change > 0) payBlock += R("Tiền thừa:", f(change) + "đ", true);
+                }
+
+                const now = new Date().toLocaleString("vi-VN");
+                const startStr = order.startTime ? new Date(order.startTime).toLocaleString("vi-VN") : "";
+                const endStr = order.endTime ? new Date(order.endTime).toLocaleString("vi-VN") : (isPaid ? now : "—");
+
+                const html = `<html><head><meta charset="utf-8"><title>Hoá Đơn</title>
+<style>
+  body{font-family:monospace;font-size:13px;padding:8px;width:320px;margin:0 auto}
+  h2{text-align:center;margin:0 0 4px;font-size:16px}
+  .sub{text-align:center;font-size:11px;color:#555;margin-bottom:8px}
+  table{width:100%;border-collapse:collapse}
+  td{padding:3px 2px;vertical-align:top}
+  td.right{text-align:right;white-space:nowrap}
+  td.indent{padding-left:12px;color:#444}
+  .bold{font-weight:bold}
+  .sep{border-top:1px dashed #999;margin:4px 0}
+  .big{font-size:15px;font-weight:bold;padding:5px 0}
+  .ctr{text-align:center}
+  .status{background:${isPaid ? "#d1fae5" : "#fef3c7"};text-align:center;padding:4px;border-radius:4px;font-weight:bold;margin-top:6px;font-size:12px}
+</style></head><body>
+<h2>🎤 HOÁ ĐƠN KARAOKE</h2>
+<div class="sub">${now}</div>
+<div class="sep"></div>
+<table>
+  ${R("Mã HĐ:", order.orderCode, true)}
+  ${R("Phòng:", rn, true)}
+  ${R("Khách:", order.customerName || "Vãng lai")}
+  ${R("Vào:", startStr)}
+  ${R("Ra:", endStr)}
+  ${order.duration ? R("Thời gian:", order.duration + "h") : ""}
+</table>
+<div class="sep"></div>
+<table>
+  <tr><td colspan="2" class="bold">🍺 Hàng hoá / Đồ uống</td></tr>
+  ${prodRows || "<tr><td colspan='2' class='indent' style='color:#aaa'>Không có</td></tr>"}
+  <tr><td class="bold">Tổng HH:</td><td class="right bold">${f(prodTotal)}đ</td></tr>
+</table>
+<div class="sep"></div>
+<table>
+  <tr><td colspan="2" class="bold">👥 Tiếp viên</td></tr>
+  ${staffRows || "<tr><td colspan='2' class='indent' style='color:#aaa'>Không có</td></tr>"}
+</table>
+<div class="sep"></div>
+<table>
+  ${R("🏠 Tiền phòng:", f(roomTotal) + "đ")}
+  ${(order.discountCustomer > 0) ? R("Giảm giá:", "-" + f(order.discountCustomer) + "đ") : ""}
+  ${(order.adjustment && order.adjustment !== 0) ? R("Điều chỉnh:", f(order.adjustment) + "đ") : ""}
+  <tr><td colspan="2" class="ctr big">TỔNG: ${f(grandTotal)}đ</td></tr>
+  ${payBlock}
+</table>
+${change > 0 ? "" : ""}
+<div class="status">${isPaid ? "✅ ĐÃ THANH TOÁN" : "⏳ CHƯA THANH TOÁN"}</div>
+<div class="sep" style="margin-top:8px"></div>
+<div class="ctr" style="font-size:11px;color:#888">Cảm ơn quý khách!<br>Hẹn gặp lại 🎤</div>
+</body></html>`;
+
+                const pw = window.open("", "_blank", "width=370,height=720");
+                if (pw) {
+                    pw.document.write(html);
+                    pw.document.close();
+                    pw.focus();
+                    setTimeout(() => pw.print(), 400);
+                }
+            };
+
+            // ─────────────────────────────────────────────────────────────
+            // QR CHUYỂN KHOẢN (dùng api.qrserver.com — free, không cần key)
+            // Format: BANK_ID|ACCOUNT|AMOUNT|CONTENT
+            // ─────────────────────────────────────────────────────────────
+            const QR_BANK_ID   = "MB";          // Mã ngân hàng (MBBank, vietcombank, techcombank...)
+            const QR_ACCOUNT   = "0123456789";  // Số tài khoản của quán
+            const QR_BANK_NAME = "MB Bank";     // Tên hiển thị
+
+            const buildQrUrl = (amount, content) => {
+                // Dùng VietQR API (miễn phí, chuẩn NAPAS)
+                const encoded = encodeURIComponent(content || "Thanh toan karaoke");
+                return `https://img.vietqr.io/image/${QR_BANK_ID}-${QR_ACCOUNT}-compact2.png?amount=${amount}&addInfo=${encoded}&accountName=QUAN+KARAOKE`;
+            };
+
+            const [showQrModal, setShowQrModal] = useState(false);
+            const [qrAmount, setQrAmount] = useState(0);
+
+            const openQrModal = (amount) => {
+                setQrAmount(amount);
+                setShowQrModal(true);
+            };
+
             const Icon = window.Icon;
 
             return (
@@ -1230,32 +1361,191 @@
                                             </>
                                         )}
 
-                                        <div className="mt-6 grid grid-cols-2 gap-6">
-                                            <div>
-                                                <label className="block text-sm text-slate-600 mb-1">Thanh toán ngân hàng</label>
-                                                <input disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"} type="number" value={tempBankPayment} onChange={e => setTempBankPayment(Number(e.target.value))} className="w-full rounded-2xl border px-4 py-3 disabled:bg-slate-100 disabled:cursor-not-allowed" />
+                                        <div className="mt-6 space-y-4">
+                                            {/* Thanh toán ngân hàng / QR */}
+                                            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <label className="text-sm font-semibold text-blue-700">💳 Chuyển khoản / QR</label>
+                                                    {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
+                                                        <button
+                                                            onClick={() => openQrModal(orderDetailCalc.grandTotal - tempCashPayment > 0 ? orderDetailCalc.grandTotal - tempCashPayment : orderDetailCalc.grandTotal)}
+                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors"
+                                                        >
+                                                            <span className="text-base">📷</span> Hiển thị QR
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <input
+                                                    disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"}
+                                                    type="number"
+                                                    value={tempBankPayment}
+                                                    onChange={e => setTempBankPayment(Number(e.target.value))}
+                                                    className="w-full rounded-xl border border-blue-200 px-4 py-2.5 disabled:bg-slate-100 disabled:cursor-not-allowed text-sm focus:outline-none focus:border-blue-400"
+                                                    placeholder="Số tiền chuyển khoản..."
+                                                />
+                                                {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
+                                                    <button
+                                                        onClick={() => setTempBankPayment(Math.max(0, orderDetailCalc.grandTotal - tempCashPayment))}
+                                                        className="mt-1.5 text-xs text-blue-600 hover:underline"
+                                                    >
+                                                        → Tự điền đủ số tiền còn lại
+                                                    </button>
+                                                )}
                                             </div>
-                                            <div>
-                                                <label className="block text-sm text-slate-600 mb-1">Thanh toán tiền mặt</label>
-                                                <input disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"} type="number" value={tempCashPayment} onChange={e => setTempCashPayment(Number(e.target.value))} className="w-full rounded-2xl border px-4 py-3 disabled:bg-slate-100 disabled:cursor-not-allowed" />
+
+                                            {/* Thanh toán tiền mặt */}
+                                            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+                                                <label className="block text-sm font-semibold text-emerald-700 mb-2">💵 Tiền mặt</label>
+                                                <input
+                                                    disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"}
+                                                    type="number"
+                                                    value={tempCashPayment}
+                                                    onChange={e => setTempCashPayment(Number(e.target.value))}
+                                                    className="w-full rounded-xl border border-emerald-200 px-4 py-2.5 disabled:bg-slate-100 disabled:cursor-not-allowed text-sm focus:outline-none focus:border-emerald-400"
+                                                    placeholder="Số tiền mặt..."
+                                                />
+                                                {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
+                                                    <button
+                                                        onClick={() => setTempCashPayment(Math.max(0, orderDetailCalc.grandTotal - tempBankPayment))}
+                                                        className="mt-1.5 text-xs text-emerald-600 hover:underline"
+                                                    >
+                                                        → Tự điền đủ số tiền còn lại
+                                                    </button>
+                                                )}
                                             </div>
+
+                                            {/* Tóm tắt còn thiếu / thừa */}
+                                            {currentOrderDetail?.paymentStatus !== "Đã thanh toán" && (
+                                                (() => {
+                                                    const paid = tempBankPayment + tempCashPayment;
+                                                    const diff = paid - orderDetailCalc.grandTotal;
+                                                    if (paid === 0) return null;
+                                                    return (
+                                                        <div className={`flex justify-between items-center px-4 py-2.5 rounded-xl text-sm font-medium ${diff >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                                                            <span>{diff >= 0 ? "✅ Tiền thừa:" : "⚠️ Còn thiếu:"}</span>
+                                                            <span className="font-bold">{Math.abs(diff).toLocaleString("vi-VN")}đ</span>
+                                                        </div>
+                                                    );
+                                                })()
+                                            )}
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Footer modal */}
-                                <div className="border-t p-6 flex gap-4 bg-slate-50">
+                                <div className="border-t p-6 bg-slate-50">
                                     {currentOrderDetail?.paymentStatus !== "Đã thanh toán" ? (
-                                        <>
-                                            <button onClick={saveOrderChanges} className="flex-1 py-4 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100">Lưu thay đổi</button>
-                                            <button onClick={completePayment} className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl">Thanh toán & Hoàn tất đơn</button>
-                                        </>
+                                        <div className="flex flex-col sm:flex-row gap-3">
+                                            <button
+                                                onClick={() => printInvoice(currentOrderDetail, orderDetailCalc)}
+                                                className="sm:w-auto px-4 py-3 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100 text-sm flex items-center justify-center gap-2"
+                                            >
+                                                🖨️ In Bill
+                                            </button>
+                                            <button onClick={saveOrderChanges} className="flex-1 py-3 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100 text-sm">
+                                                💾 Lưu thay đổi
+                                            </button>
+                                            <button onClick={completePayment} className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl text-sm">
+                                                ✅ Thanh toán & Hoàn tất
+                                            </button>
+                                        </div>
                                     ) : (
-                                        <>
-                                            <div className="flex-1 py-4 text-center text-emerald-600 font-semibold rounded-2xl bg-emerald-50">✅ Đơn hàng đã chốt thanh toán</div>
-                                            <button onClick={deleteOrder} className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl">Xoá đơn hàng</button>
-                                        </>
+                                        <div className="flex flex-col sm:flex-row gap-3">
+                                            <button
+                                                onClick={() => printInvoice(currentOrderDetail, orderDetailCalc)}
+                                                className="sm:w-auto px-4 py-3 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100 text-sm flex items-center justify-center gap-2"
+                                            >
+                                                🖨️ In Bill
+                                            </button>
+                                            <div className="flex-1 py-3 text-center text-emerald-600 font-semibold rounded-2xl bg-emerald-50 text-sm">✅ Đơn hàng đã chốt thanh toán</div>
+                                            <button onClick={deleteOrder} className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl text-sm">
+                                                🗑️ Xoá đơn
+                                            </button>
+                                        </div>
                                     )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    {/* QR CHUYỂN KHOẢN MODAL */}
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    {showQrModal && (
+                        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
+                                {/* Header */}
+                                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-white font-bold text-lg">📷 QR Chuyển khoản</h3>
+                                        <p className="text-blue-100 text-xs mt-0.5">{QR_BANK_NAME} — TK: {QR_ACCOUNT}</p>
+                                    </div>
+                                    <button onClick={() => setShowQrModal(false)} className="text-white/70 hover:text-white text-2xl leading-none">×</button>
+                                </div>
+
+                                {/* QR Image */}
+                                <div className="flex flex-col items-center px-6 py-5">
+                                    <div className="bg-white border-4 border-blue-100 rounded-2xl p-2 shadow-inner mb-4">
+                                        <img
+                                            src={buildQrUrl(qrAmount, `Thanh toan ${currentOrderDetail?.orderCode || ""}`)}
+                                            alt="QR chuyển khoản"
+                                            className="w-52 h-52 object-contain rounded-xl"
+                                            onError={e => { e.target.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`${QR_BANK_ID}|${QR_ACCOUNT}|${qrAmount}|Thanh toan karaoke`)}`; }}
+                                        />
+                                    </div>
+
+                                    {/* Số tiền */}
+                                    <div className="text-center mb-4">
+                                        <div className="text-2xl font-extrabold text-blue-700">
+                                            {qrAmount.toLocaleString("vi-VN")}đ
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-0.5">
+                                            Nội dung: Thanh toan {currentOrderDetail?.orderCode || "karaoke"}
+                                        </div>
+                                    </div>
+
+                                    {/* Chỉnh số tiền QR */}
+                                    <div className="w-full bg-slate-50 rounded-2xl p-4 space-y-3">
+                                        <label className="text-xs font-semibold text-slate-600 block">Điều chỉnh số tiền QR:</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="number"
+                                                value={qrAmount}
+                                                onChange={e => setQrAmount(Number(e.target.value))}
+                                                className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                                            />
+                                            <button
+                                                onClick={() => setQrAmount(orderDetailCalc.grandTotal)}
+                                                className="px-3 py-2 bg-blue-600 text-white text-xs rounded-xl hover:bg-blue-700 font-medium whitespace-nowrap"
+                                            >
+                                                Tổng bill
+                                            </button>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            {[50000, 100000, 200000, 500000].map(v => (
+                                                <button
+                                                    key={v}
+                                                    onClick={() => setQrAmount(v)}
+                                                    className="flex-1 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-100 font-medium"
+                                                >
+                                                    {(v/1000)}k
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer */}
+                                <div className="border-t px-6 py-4 flex gap-3 bg-slate-50">
+                                    <button
+                                        onClick={() => {
+                                            setTempBankPayment(qrAmount);
+                                            setShowQrModal(false);
+                                        }}
+                                        className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl text-sm"
+                                    >
+                                        ✓ Xác nhận đã nhận {qrAmount.toLocaleString("vi-VN")}đ
+                                    </button>
                                 </div>
                             </div>
                         </div>
