@@ -50,11 +50,11 @@
 <body>
   <?!= include('staffComponent'); ?>
   <?!= include('productComponent'); ?>
-  <?!= include('roomComponent'); ?>
+  <?!= include('roomOrderIntegratedComponent.html'); ?>
   <?!= include('dashboardComponent'); ?>
-  <?!= include('createOrderComponent.html'); ?>
   <?!= include('orderManagement.html'); ?>
   <?!= include('customerManager.html'); ?>
+  <?!= include('managerAccount.html'); ?>
   <script type="text/babel">
     // ============ SHARED REACT HOOKS ============
     window.ReactShared = {
@@ -359,13 +359,13 @@
           const p = new URLSearchParams(window.location.search).get("page");
           if (p === "product") return "product";
           if (p === "room") return "room";
-          if (p === "create-order") return "create-order";
           if (p === "order-management") return "order-management";
           if (p === "customer") return "customer";
           if (p === "dashboard" && user.role === "admin") return "dashboard";
-          return user.role === "staff" ? "create-order" : "dashboard";
+          if (p === "account" && user.role === "admin") return "account";
+          return "room";
         } catch (e) {
-          return "create-order";
+          return "room";
         }
       };
 
@@ -386,9 +386,9 @@
       const ProductPage = window.ProductPage;
       const RoomPage = window.RoomPage;
       const DashboardPage = window.DashboardPage;
-      const CreateOrderPage = window.OrderPage;
       const OrderManagementPage = window.OrderManagementPage;
       const CustomerPage = window.CustomerPage;
+      const AccountManagementPage = window.AccountManagement;
 
       const renderPage = () => {
         if (page === "dashboard") {
@@ -402,16 +402,16 @@
           }
           return <DashboardPage />;
         }
-        if (page === "create-order") {
-          if (!CreateOrderPage) {
+        if (page === "room") {
+          if (!RoomPage) {
             return (
               <div className="p-4 text-red-600">
-                Lỗi: chưa tải được CreateOrderPage. Kiểm tra file{" "}
-                <code>createOrderComponent.html</code> và include trong index.
+                Lỗi: chưa tải được RoomPage. Kiểm tra file{" "}
+                <code>roomOrderIntegratedComponent.html</code> và include trong index.
               </div>
             );
           }
-          return <CreateOrderPage />;
+          return <RoomPage />;
         }
         if (page === "order-management") {
           if (!OrderManagementPage) {
@@ -457,108 +457,109 @@
           }
           return <ProductPage />;
         }
-        if (page === "room") {
-          if (!RoomPage) {
+        if (page === "account" && user.role === "admin") {
+          if (!AccountManagementPage) {
             return (
               <div className="p-4 text-red-600">
-                Lỗi: chưa tải được RoomPage. Trong Apps Script hãy thêm file{" "}
-                <code>roomComponent.html</code> (tên file đúng như vậy) và dòng{" "}
-                <code>include(&apos;roomComponent&apos;)</code> trong{" "}
-                <code>index.html</code>.
+                Lỗi: chưa tải được ManagerAccount. Kiểm tra{" "}
+                <code>managerAccount.html</code>.
               </div>
             );
           }
-          return <RoomPage />;
+          return <AccountManagementPage />;
         }
-        return <CreateOrderPage />;
+        return <RoomPage />;
       };
 
       return (
-        <div className="flex h-screen bg-blue-50">
-          {/* Sidebar */}
-          <div className="w-64 bg-white shadow-lg p-4 flex flex-col">
-            <h2 className="text-xl font-bold text-blue-600 mb-6">
-              Quản lý kho
+        <div className="flex flex-col h-screen bg-blue-50">
+          {/* Navbar - Nằm ngang ở trên */}
+          <div className="bg-white shadow-lg p-4 flex items-center justify-between">
+            <h2 className="text-xl font-bold text-blue-600">
+              Quản lý Quán
             </h2>
 
-            {user.role === "admin" && (
+            <div className="flex gap-2 flex-wrap">
+              {user.role === "admin" && (
+                <>
+                  <button
+                    onClick={() => setPageAndUrl("dashboard")}
+                    className={`px-4 py-2 rounded transition-colors whitespace-nowrap ${page === "dashboard"
+                      ? "bg-indigo-100 text-indigo-700 font-semibold"
+                      : "hover:bg-blue-100"
+                      }`}
+                  >
+                    📊 Dashboard
+                  </button>
+                  <button
+                    onClick={() => setPageAndUrl("account")}
+                    className={`px-4 py-2 rounded transition-colors whitespace-nowrap ${page === "account"
+                      ? "bg-indigo-100 text-indigo-700 font-semibold"
+                      : "hover:bg-blue-100"
+                      }`}
+                  >
+                    🔐 Tài khoản
+                  </button>
+                </>
+              )}
+
               <button
-                onClick={() => setPageAndUrl("dashboard")}
-                className={`p-2 text-left rounded mb-2 transition-colors ${page === "dashboard"
-                    ? "bg-indigo-100 text-indigo-700 font-semibold"
-                    : "hover:bg-blue-100"
+                onClick={() => setPageAndUrl("room")}
+                className={`px-4 py-2 rounded transition-colors whitespace-nowrap ${page === "room"
+                  ? "bg-blue-100 text-blue-700 font-semibold"
+                  : "hover:bg-blue-100"
                   }`}
               >
-                📊 Dashboard
+                🏠 Quản lý
               </button>
-            )}
 
-            <button
-              onClick={() => setPageAndUrl("create-order")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "create-order"
+              <button
+                onClick={() => setPageAndUrl("order-management")}
+                className={`px-4 py-2 rounded transition-colors whitespace-nowrap ${page === "order-management"
                   ? "bg-blue-100 text-blue-700 font-semibold"
                   : "hover:bg-blue-100"
-                }`}
-            >
-              ➕ Soạn đơn hàng
-            </button>
+                  }`}
+              >
+                📋 Hoá Đơn
+              </button>
 
-            <button
-              onClick={() => setPageAndUrl("order-management")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "order-management"
+              <button
+                onClick={() => setPageAndUrl("staff")}
+                className={`px-4 py-2 rounded transition-colors whitespace-nowrap ${page === "staff"
                   ? "bg-blue-100 text-blue-700 font-semibold"
                   : "hover:bg-blue-100"
-                }`}
-            >
-              📋 Quản lý Order
-            </button>
+                  }`}
+              >
+                👩‍💼 Nhân viên
+              </button>
 
-            <button
-              onClick={() => setPageAndUrl("staff")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "staff"
+              <button
+                onClick={() => setPageAndUrl("product")}
+                className={`px-4 py-2 rounded transition-colors whitespace-nowrap ${page === "product"
                   ? "bg-blue-100 text-blue-700 font-semibold"
                   : "hover:bg-blue-100"
-                }`}
-            >
-              👩‍💼 Nhân viên
-            </button>
-
-            <button
-              onClick={() => setPageAndUrl("product")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "product"
+                  }`}
+              >
+                🛒 Hàng hoá
+              </button>
+              <button
+                onClick={() => setPageAndUrl("customer")}
+                className={`px-4 py-2 rounded transition-colors whitespace-nowrap ${page === "customer"
                   ? "bg-blue-100 text-blue-700 font-semibold"
                   : "hover:bg-blue-100"
-                }`}
-            >
-              🛒 Hàng hoá
-            </button>
-            <button
-              onClick={() => setPageAndUrl("room")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "room"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              🏠 Phòng
-            </button>
+                  }`}
+              >
+                👥 Khách hàng
+              </button>
+            </div>
 
-            <button
-              onClick={() => setPageAndUrl("customer")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "customer"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              👥 Khách hàng
-            </button>
-
-            <div className="mt-auto">
-              <p className="text-xs text-gray-500 mb-3">
-                Logged as: <span className="font-semibold">{user.name}</span>
+            <div className="flex items-center gap-4">
+              <p className="text-xs text-gray-500">
+                <span className="font-semibold">{user.name}</span>
               </p>
               <button
                 onClick={logout}
-                className="w-full bg-red-500 text-white p-2 rounded mt-4 hover:bg-red-600 transition-colors"
+                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors whitespace-nowrap"
               >
                 Đăng xuất
               </button>
