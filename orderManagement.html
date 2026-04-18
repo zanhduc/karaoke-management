@@ -1,0 +1,901 @@
+<script type="text/babel">
+    (function () {
+        const { useEffect, useMemo, useState, useRef } = React;
+
+        // Component đếm thời gian đã sử dụng
+        const ElapsedTimer = ({ startTime, small = false }) => {
+            const [display, setDisplay] = useState("");
+
+            useEffect(() => {
+                const updateElapsed = () => {
+                    const now = new Date();
+                    const start = new Date(startTime);
+                    const diff = now - start;
+
+                    if (diff < 0) {
+                        setDisplay("0:00");
+                        return;
+                    }
+
+                    const hours = Math.floor(diff / 3600000);
+                    const minutes = Math.floor((diff % 3600000) / 60000);
+                    const seconds = Math.floor((diff % 60000) / 1000);
+
+                    setDisplay(
+                        hours > 0
+                            ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+                            : `${minutes}:${String(seconds).padStart(2, '0')}`
+                    );
+                };
+
+                updateElapsed();
+                const interval = setInterval(updateElapsed, 1000);
+                return () => clearInterval(interval);
+            }, [startTime]);
+
+            const sizeClass = small ? "text-2xl" : "text-6xl";
+
+            return (
+                <div className={`${sizeClass} font-mono font-bold`}>
+                    {display}
+                </div>
+            );
+        };
+
+        window.OrderManagementPage = function OrderManagementPage() {
+            const [orders, setOrders] = useState([]);
+            const [rooms, setRooms] = useState([]);
+            const [products, setProducts] = useState([]);
+            const [staffs, setStaffs] = useState([]);
+            const [searchQuery, setSearchQuery] = useState("");
+
+            const [isLoading, setIsLoading] = useState(true);
+            const [error, setError] = useState("");
+            const [success, setSuccess] = useState("");
+
+            // Modal chi tiết order
+            const [selectedOrder, setSelectedOrder] = useState(null);
+            const [showDetailModal, setShowDetailModal] = useState(false);
+
+            // Dữ liệu tạm trong modal
+            const [tempProducts, setTempProducts] = useState([]);
+            const [tempStaffs, setTempStaffs] = useState([]);
+            const [tempBankPayment, setTempBankPayment] = useState(0);
+            const [tempCashPayment, setTempCashPayment] = useState(0);
+            const [tempNote, setTempNote] = useState("");
+
+            // Tab chọn
+            const [activeTab, setActiveTab] = useState("active"); // "active" hoặc "completed"
+
+            // Notification popup
+            const [notification, setNotification] = useState(null);
+
+            // Room detail popup
+            const [selectedRoom, setSelectedRoom] = useState(null);
+            const [showRoomDetailModal, setShowRoomDetailModal] = useState(false);
+            const [remainingTime, setRemainingTime] = useState(0);
+
+            // Track nhân viên đã được giải phóng + thông báo 10 phút (dùng useRef tránh re-render)
+            const releasedStaffsRef = useRef(new Set());
+            const notifiedOrdersRef = useRef(new Set());
+
+            // Auto-dismiss notification
+            useEffect(() => {
+                if (notification && notification.duration) {
+                    const timer = setTimeout(() => {
+                        setNotification(null);
+                    }, notification.duration);
+                    return () => clearTimeout(timer);
+                }
+            }, [notification]);
+
+            const loadAllData = async () => {
+                setIsLoading(true);
+                setError("");
+                try {
+                    console.log("Starting loadAllData...");
+
+                    const orderPromise = new Promise((res, rej) => {
+                        console.log("Calling google.script.run.getOrders()...");
+                        google.script.run
+                            .withSuccessHandler((result) => {
+                                console.log("getOrders success handler called with:", result);
+                                res(result);
+                            })
+                            .withFailureHandler((error) => {
+                                console.error("getOrders failure handler called with:", error);
+                                rej(error);
+                            })
+                            .getOrders();
+                    });
+
+                    const roomPromise = new Promise((res, rej) => google.script.run
+                        .withSuccessHandler(res)
+                        .withFailureHandler(rej)
+                        .getRooms());
+
+                    const productPromise = new Promise((res, rej) => google.script.run
+                        .withSuccessHandler(res)
+                        .withFailureHandler(rej)
+                        .getProducts());
+
+                    const staffPromise = new Promise((res, rej) => google.script.run
+                        .withSuccessHandler(res)
+                        .withFailureHandler(rej)
+                        .getStaffs());
+
+                    console.log("Waiting for all promises...");
+                    const [orderData, roomData, productData, staffData] = await Promise.all([
+                        orderPromise, roomPromise, productPromise, staffPromise
+                    ]);
+
+                    // DEBUG: Log data
+                    console.log("Orders from API:", orderData);
+                    console.log("Rooms from API:", roomData);
+                    console.log("Products from API:", productData);
+                    console.log("Staffs from API:", staffData);
+
+                    setOrders(orderData || []);
+                    setRooms(roomData || []);
+                    setProducts(productData || []);
+                    setStaffs(staffData || []);
+                } catch (e) {
+                    setError("Không tải được dữ liệu: " + (e.message || e));
+                    console.error("Load error:", e);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                loadAllData();
+                // Reload dữ liệu mỗi 30s để cập nhật thông tin thanh toán
+                const interval = setInterval(() => {
+                    loadAllData();
+                }, 30000);
+                return () => clearInterval(interval);
+            }, []);
+
+            // Lọc orders theo loại
+            const activeOrders = useMemo(() => {
+                return orders.filter(o => {
+                    // Đang hoạt động = chưa thanh toán AND chưa hết giờ
+                    if (o.paymentStatus === "Đã thanh toán") return false;
+                    if (o.endTime) {
+                        const endTime = new Date(o.endTime);
+                        return endTime > new Date();
+                    }
+                    return true;
+                });
+            }, [orders]);
+
+            const completedOrders = useMemo(() => {
+                return orders.filter(o => {
+                    // Đã chốt = đã thanh toán HOẶC đã hết giờ
+                    return o.paymentStatus === "Đã thanh toán" || (o.endTime && new Date(o.endTime) <= new Date());
+                });
+            }, [orders]);
+
+            // Lọc orders theo search query
+            const filteredActiveOrders = useMemo(() => {
+                if (!searchQuery.trim()) return activeOrders;
+                const q = searchQuery.toLowerCase();
+                return activeOrders.filter(o =>
+                    o.orderCode.toLowerCase().includes(q) ||
+                    o.customerName?.toLowerCase().includes(q) ||
+                    o.roomName?.toLowerCase().includes(q) ||
+                    String(o.roomId).includes(q)
+                );
+            }, [activeOrders, searchQuery]);
+
+            const filteredCompletedOrders = useMemo(() => {
+                if (!searchQuery.trim()) return completedOrders;
+                const q = searchQuery.toLowerCase();
+                return completedOrders.filter(o =>
+                    o.orderCode.toLowerCase().includes(q) ||
+                    o.customerName?.toLowerCase().includes(q) ||
+                    o.roomName?.toLowerCase().includes(q) ||
+                    String(o.roomId).includes(q)
+                );
+            }, [completedOrders, searchQuery]);
+
+            // Reset tracked notifications khi active orders thay đổi (tránh thông báo cũ)
+            useEffect(() => {
+                notifiedOrdersRef.current.forEach(key => {
+                    const orderCode = key.split('-')[0];
+                    if (!activeOrders.find(o => o.orderCode === orderCode)) {
+                        notifiedOrdersRef.current.delete(key);
+                    }
+                });
+            }, [activeOrders]);
+
+            // Listen for navigation event from room detail to open order edit
+            useEffect(() => {
+                const handleNavigate = (event) => {
+                    const detail = event.detail;
+                    if (typeof detail === 'object' && detail.page === 'orderManagement' && detail.orderCode) {
+                        setTimeout(() => {
+                            const order = orders.find(o => o.orderCode === detail.orderCode);
+                            if (order) {
+                                openOrderDetail(order);
+                                setActiveTab("active");
+                            }
+                        }, 100);
+                    }
+                };
+
+                window.addEventListener('navigateToPage', handleNavigate);
+                return () => window.removeEventListener('navigateToPage', handleNavigate);
+            }, [orders]);
+
+            const openOrderDetail = (order) => {
+                setSelectedOrder(order);
+                const products = order.products ? (typeof order.products === "string" ? JSON.parse(order.products) : order.products) : [];
+                const staffs = order.staffs ? (typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs) : [];
+                setTempProducts(products);
+                setTempStaffs(staffs);
+                setTempBankPayment(order.bankPayment || 0);
+                setTempCashPayment(order.cashPayment || 0);
+                setTempNote(order.note || "");
+                setShowDetailModal(true);
+            };
+
+            const closeDetailModal = () => {
+                setShowDetailModal(false);
+                setSelectedOrder(null);
+            };
+
+            // Mở popup chi tiết phòng
+            const openRoomDetailModal = (order) => {
+                const roomData = {
+                    ...order,
+                    endTime: order.endTime || new Date(Date.now() + 2 * 3600000).toISOString(),
+                    products: order.products || JSON.stringify([]),
+                    staffs: order.staffs || JSON.stringify([]),
+                    customerName: order.customerName || "Vãng lai"
+                };
+                setSelectedRoom(roomData);
+                setShowRoomDetailModal(true);
+                setRemainingTime(0);
+            };
+
+            const closeRoomDetailModal = () => {
+                setShowRoomDetailModal(false);
+                setSelectedRoom(null);
+            };
+
+            // Thêm sản phẩm vào order hiện tại
+            const addProductToCurrentOrder = (product) => {
+                const existing = tempProducts.findIndex(p => p.id === product.id);
+                if (existing >= 0) {
+                    const updated = [...tempProducts];
+                    updated[existing].quantity = (updated[existing].quantity || 1) + 1;
+                    setTempProducts(updated);
+                } else {
+                    setTempProducts([...tempProducts, { ...product, quantity: 1 }]);
+                }
+            };
+
+            const removeProductFromOrder = (id) => {
+                setTempProducts(tempProducts.filter(p => p.id !== id));
+            };
+
+            const updateProductQty = (id, qty) => {
+                if (qty < 1) return;
+                setTempProducts(tempProducts.map(p => p.id === id ? { ...p, quantity: qty } : p));
+            };
+
+            // Thêm tiếp viên
+            const addStaffToCurrentOrder = (staff) => {
+                if (!tempStaffs.find(s => s.id === staff.id)) {
+                    setTempStaffs([...tempStaffs, { ...staff }]);
+                }
+            };
+
+            const removeStaffFromOrder = (id) => {
+                setTempStaffs(tempStaffs.filter(s => s.id !== id));
+            };
+
+            const updateStaffHours = (id, hours) => {
+                if (hours < 1) return;
+                setTempStaffs(tempStaffs.map(s => s.id === id ? { ...s, hours } : s));
+            };
+
+            // Lấy danh sách staff chưa được thêm vào
+            const availableStaffs = useMemo(() => {
+                const addedIds = new Set(tempStaffs.map(s => s.id));
+                return staffs.filter(s => !addedIds.has(s.id));
+            }, [staffs, tempStaffs]);
+
+            // State theo dõi thời gian thực để tính ước tính tiền phòng
+            const [elapsedTick, setElapsedTick] = useState(0);
+
+            useEffect(() => {
+                if (!showDetailModal || selectedOrder?.paymentStatus === "Đã thanh toán") return;
+
+                const interval = setInterval(() => {
+                    setElapsedTick(t => t + 1);
+                }, 1000);
+                return () => clearInterval(interval);
+            }, [showDetailModal, selectedOrder?.paymentStatus]);
+
+            // Tính ước tính duration và tiền phòng khi chưa thanh toán
+            const estimatedCalc = useMemo(() => {
+                if (!selectedOrder?.startTime) return { estimatedDuration: 0, estimatedRoomTotal: 0 };
+
+                const startTime = new Date(selectedOrder.startTime);
+                const now = new Date();
+                const durationMs = now.getTime() - startTime.getTime();
+                const durationHours = durationMs / (1000 * 60 * 60);
+                const estimatedDuration = Math.ceil(durationHours);
+
+                // Lấy room price từ rooms list
+                const room = rooms.find(r => String(r.id) === String(selectedOrder.roomId));
+                const roomPrice = room ? Number(room.price_per_hour) || 0 : 0;
+                const estimatedRoomTotal = estimatedDuration * roomPrice;
+
+                return { estimatedDuration, estimatedRoomTotal };
+            }, [selectedOrder?.startTime, rooms, elapsedTick]);
+
+            // Tính tổng tiền realtime trong modal
+            const calc = useMemo(() => {
+                // Tính tiền hàng hoá + tiếp viên
+                const productTotal = tempProducts.reduce((sum, p) => sum + (Number(p.price) * (p.quantity || 1)), 0);
+                const staffTotal = tempStaffs.reduce((sum, s) => sum + (Number(s.price_per_hour) || 0), 0);
+
+                // Nếu đã thanh toán, dùng giá trị thực từ order; nếu chưa, dùng ước tính
+                const roomTotal = selectedOrder?.paymentStatus === "Đã thanh toán"
+                    ? (selectedOrder?.roomTotal || 0)
+                    : estimatedCalc.estimatedRoomTotal;
+
+                const serviceTotal = productTotal + staffTotal;
+                const subtotal = serviceTotal + roomTotal;
+                const grandTotal = Math.max(0, subtotal - (selectedOrder?.discountCustomer || 0) + (selectedOrder?.adjustment || 0));
+
+                return { serviceTotal, roomTotal, grandTotal, prodTotal: productTotal, staffTotal };
+            }, [tempProducts, tempStaffs, selectedOrder, estimatedCalc]);
+
+            // Lưu thay đổi vào order
+            const saveOrderChanges = async () => {
+                if (!selectedOrder) return;
+
+                const updatedOrder = {
+                    ...selectedOrder,
+                    products: JSON.stringify(tempProducts),
+                    staffs: JSON.stringify(tempStaffs),
+                    bankPayment: tempBankPayment,
+                    cashPayment: tempCashPayment,
+                    note: tempNote,
+                    grandTotal: calc.grandTotal
+                };
+
+                try {
+                    await google.script.run
+                        .withSuccessHandler(() => { })
+                        .withFailureHandler(() => { })
+                        .updateOrder(selectedOrder.orderCode, updatedOrder);
+
+                    setSuccess("Đã lưu thay đổi vào đơn hàng");
+                    setTimeout(() => setSuccess(""), 2500);
+
+                    // Reload danh sách
+                    loadAllData();
+                    closeDetailModal();
+                } catch (e) {
+                    setError("Lưu thay đổi thất bại");
+                }
+            };
+
+            // Thanh toán & hoàn tất đơn
+            const completePayment = async () => {
+                if (!selectedOrder) return;
+
+                // Nếu đã thanh toán rồi thì không cho thanh toán nữa
+                if (selectedOrder?.paymentStatus === "Đã thanh toán") {
+                    setError("Đơn hàng này đã được chốt thanh toán rồi!");
+                    return;
+                }
+
+                const totalPaid = tempBankPayment + tempCashPayment;
+                if (totalPaid < calc.grandTotal) {
+                    setError(`Số tiền thanh toán chưa đủ! Còn thiếu ${(calc.grandTotal - totalPaid).toLocaleString()}đ`);
+                    return;
+                }
+
+                try {
+                    await google.script.run
+                        .withSuccessHandler(() => { })
+                        .withFailureHandler(() => { })
+                        .markOrderAsPaid(selectedOrder.orderCode, {
+                            bankPayment: tempBankPayment,
+                            cashPayment: tempCashPayment,
+                            paymentStatus: "Đã thanh toán"
+                        });
+
+                    setSuccess(`Hoàn tất thanh toán đơn ${selectedOrder.orderCode}`);
+                    setTimeout(() => setSuccess(""), 3000);
+
+                    loadAllData();
+                    closeDetailModal();
+                } catch (e) {
+                    setError("Thanh toán thất bại");
+                }
+            };
+
+            return (
+                <div className="max-w-6xl mx-auto p-4">
+                    <div className="bg-white rounded-3xl shadow-xl overflow-hidden">
+                        <div className="px-8 py-6 border-b bg-slate-50 flex justify-between items-center">
+                            <div>
+                                <h1 className="text-3xl font-bold text-slate-800">Quản lý Order</h1>
+                                <p className="text-slate-500">Theo dõi và chốt thanh toán đơn hàng</p>
+                            </div>
+                            <button onClick={loadAllData} className="px-5 py-2.5 bg-white border border-slate-300 rounded-2xl flex items-center gap-2 hover:bg-slate-50">
+                                <span className="text-xl">⟳</span> Tải lại
+                            </button>
+                        </div>
+
+                        {/* Tabs và Search */}
+                        <div className="px-8 py-4 border-b bg-white">
+                            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                                <div className="flex gap-4">
+                                    <button
+                                        onClick={() => setActiveTab("active")}
+                                        className={`px-6 py-2 rounded-2xl font-medium transition-all ${activeTab === "active"
+                                            ? "bg-indigo-100 text-indigo-700"
+                                            : "text-slate-500 hover:text-slate-700"
+                                            }`}
+                                    >
+                                        📊 Đang hoạt động ({activeOrders.length})
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab("completed")}
+                                        className={`px-6 py-2 rounded-2xl font-medium transition-all ${activeTab === "completed"
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : "text-slate-500 hover:text-slate-700"
+                                            }`}
+                                    >
+                                        ✅ Đã chốt ({completedOrders.length})
+                                    </button>
+                                </div>
+                                <div className="w-full md:max-w-xs">
+                                    <input
+                                        type="text"
+                                        placeholder="🔍 Tìm theo Order, khách..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="w-full rounded-2xl border border-slate-200 px-4 py-2.5 focus:outline-none focus:border-indigo-500"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {error && <div className="mx-8 mt-6 p-4 bg-red-50 text-red-700 rounded-2xl">{error}</div>}
+                        {success && <div className="mx-8 mt-6 p-4 bg-emerald-50 text-emerald-700 rounded-2xl">{success}</div>}
+
+                        <div className="p-8">
+                            {isLoading ? (
+                                <div className="text-center py-20">Đang tải danh sách order...</div>
+                            ) : activeTab === "active" ? (
+                                filteredActiveOrders.length === 0 ? (
+                                    <div className="text-center py-20 text-slate-400">{searchQuery ? "Không tìm thấy order nào" : "Chưa có order nào đang hoạt động"}</div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {filteredActiveOrders.map(order => {
+                                            const startTime = new Date(order.startTime);
+
+                                            return (
+                                                <div
+                                                    key={order.orderCode}
+                                                    onClick={() => openOrderDetail(order)}
+                                                    className="border border-indigo-200 hover:border-indigo-400 rounded-3xl p-6 cursor-pointer transition-all bg-indigo-50"
+                                                >
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <div className="font-bold text-xl">{order.orderCode}</div>
+                                                            <div className="text-slate-500">{order.roomName || `Phòng ${order.roomId}`}</div>
+                                                        </div>
+                                                        <div className="flex flex-col items-end gap-2">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    openRoomDetailModal(order);
+                                                                }}
+                                                                className="text-2xl hover:scale-125 transition-transform"
+                                                                title="Xem chi tiết phòng"
+                                                            >
+                                                                📋
+                                                            </button>
+                                                            <div className="text-right">
+                                                                <div className="text-emerald-600 font-semibold text-2xl">
+                                                                    {Number(order.grandTotal || 0).toLocaleString()}đ
+                                                                </div>
+                                                                <div className="text-xs text-indigo-600 font-bold">
+                                                                    🟢 Đang hoạt động
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-4 text-sm text-slate-600">
+                                                        Khách: <strong>{order.customerName || "Vãng lai"}</strong>
+                                                    </div>
+                                                    <div className="text-xs text-slate-400 mt-1">
+                                                        Bắt đầu: {startTime.toLocaleString('vi-VN')}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )
+                            ) : (
+                                filteredCompletedOrders.length === 0 ? (
+                                    <div className="text-center py-20 text-slate-400">{searchQuery ? "Không tìm thấy order nào" : "Chưa có order nào được chốt"}</div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {filteredCompletedOrders.map(order => (
+                                            <div
+                                                key={order.orderCode}
+                                                onClick={() => openOrderDetail(order)}
+                                                className="border border-emerald-200 hover:border-emerald-300 rounded-3xl p-6 cursor-pointer transition-all bg-emerald-50"
+                                            >
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <div className="font-bold text-xl">{order.orderCode}</div>
+                                                        <div className="text-slate-500">{order.roomName || `Phòng ${order.roomId}`}</div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-emerald-600 font-semibold text-2xl">
+                                                            {Number(order.grandTotal || 0).toLocaleString()}đ
+                                                        </div>
+                                                        <div className="text-xs text-emerald-600 font-bold">✅ Đã chốt</div>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-4 text-sm text-slate-600">
+                                                    Khách: <strong>{order.customerName || "Vãng lai"}</strong>
+                                                </div>
+                                                <div className="text-xs text-slate-400 mt-1">
+                                                    Thanh toán: {(Number(order.bankPayment || 0) + Number(order.cashPayment || 0)).toLocaleString()}đ
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )
+                            )}
+                        </div>
+                    </div>
+
+                    {/* ====================== MODAL CHI TIẾT ORDER ====================== */}
+                    {showDetailModal && selectedOrder && (
+                        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+                                {/* Header modal */}
+                                <div className="px-8 py-5 border-b flex items-center justify-between bg-slate-50">
+                                    <div>
+                                        <h2 className="text-2xl font-bold">Chi tiết Order: {selectedOrder.orderCode}</h2>
+                                        <p className="text-slate-500">{selectedOrder.roomName || `Phòng ${selectedOrder.roomId}`}</p>
+                                    </div>
+                                    <button onClick={closeDetailModal} className="text-3xl leading-none text-slate-400 hover:text-slate-600">×</button>
+                                </div>
+
+                                <div className="flex-1 p-8 overflow-auto">
+                                    {/* Nội dung modal chi tiết order */}
+                                    <div className="grid grid-cols-2 gap-8">
+                                        {/* Cột trái */}
+                                        <div>
+                                            <h3 className="font-semibold mb-3">Hàng hoá</h3>
+                                            <div className="space-y-2 mb-6">
+                                                {tempProducts.map(item => (
+                                                    <div key={item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl">
+                                                        <div>
+                                                            <span className="font-medium">{item.name}</span>
+                                                            <span className="ml-3 text-emerald-600">× {item.quantity}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-3">
+                                                            <button onClick={() => updateProductQty(item.id, item.quantity - 1)} className="w-7 h-7 border rounded-lg">-</button>
+                                                            <span>{item.quantity}</span>
+                                                            <button onClick={() => updateProductQty(item.id, item.quantity + 1)} className="w-7 h-7 border rounded-lg">+</button>
+                                                            <button onClick={() => removeProductFromOrder(item.id)} className="text-rose-500">Xoá</button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <h3 className="font-semibold mb-3">Thêm hàng hoá</h3>
+                                            <div>
+                                                <select
+                                                    onChange={(e) => {
+                                                        if (e.target.value) {
+                                                            const product = products.find(p => String(p.id) === e.target.value);
+                                                            if (product) {
+                                                                addProductToCurrentOrder(product);
+                                                                e.target.value = "";
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-full rounded-2xl border border-slate-200 px-4 py-2"
+                                                >
+                                                    <option value="">-- Chọn hàng hoá --</option>
+                                                    {products.map(p => (
+                                                        <option key={p.id} value={p.id}>
+                                                            {p.name} - {Number(p.price).toLocaleString()}đ
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {/* Cột phải */}
+                                        <div>
+                                            <h3 className="font-semibold mb-3">Tiếp viên</h3>
+                                            {tempStaffs.length === 0 ? (
+                                                <div className="text-slate-400 text-sm mb-6">Chưa có tiếp viên nào</div>
+                                            ) : (
+                                                <div className="space-y-3 mb-6">
+                                                    {tempStaffs.map(s => (
+                                                        <div key={s.id} className="bg-slate-100 px-4 py-3 rounded-2xl flex items-center justify-between">
+                                                            <div className="flex-1">
+                                                                <div className="font-medium">{s.name}</div>
+                                                                <div className="text-xs text-slate-500 mt-1">Giá/h: {Number(s.price_per_hour || 0).toLocaleString()}đ</div>
+                                                            </div>
+                                                            <button onClick={() => removeStaffFromOrder(s.id)} className="text-rose-500 hover:text-rose-700 font-bold">×</button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            <h3 className="font-semibold mb-3">Thêm tiếp viên</h3>
+                                            <div>
+                                                <select
+                                                    onChange={(e) => {
+                                                        if (e.target.value) {
+                                                            const staff = staffs.find(s => String(s.id) === e.target.value);
+                                                            if (staff) {
+                                                                addStaffToCurrentOrder(staff);
+                                                                e.target.value = "";
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-full rounded-2xl border border-slate-200 px-4 py-2"
+                                                >
+                                                    <option value="">-- Chọn nhân viên --</option>
+                                                    {availableStaffs.map(s => (
+                                                        <option key={s.id} value={s.id}>
+                                                            {s.name} - {Number(s.price_per_hour || 0).toLocaleString()}đ/h
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Thời gian sử dụng realtime - chỉ khi chưa thanh toán */}
+                                    {selectedOrder?.paymentStatus === "Chưa thanh toán" && selectedOrder?.startTime && (
+                                        <div className="mb-8 text-center p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white">
+                                            <div className="text-sm opacity-90 mb-3">Thời gian đã sử dụng</div>
+                                            <ElapsedTimer startTime={selectedOrder.startTime} small={false} />
+                                            <div className="text-xs opacity-75 mt-2">Tiền phòng sẽ tính dựa trên thời gian này (làm tròn theo giờ)</div>
+                                        </div>
+                                    )}
+
+                                    {/* Tổng kết & Thanh toán */}
+                                    <div className="mt-10 bg-slate-50 p-6 rounded-3xl">
+                                        {selectedOrder?.paymentStatus === "Chưa thanh toán" && (
+                                            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+                                                💡 Tiền phòng sẽ được tính khi thanh toán (làm tròn theo giờ)
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between text-lg">
+                                            <span>Tổng hàng hoá:</span>
+                                            <span className="font-semibold">{calc.prodTotal.toLocaleString()} đ</span>
+                                        </div>
+                                        <div className="flex justify-between text-lg mt-2">
+                                            <span>Tổng tiếp viên ({tempStaffs.length} người):</span>
+                                            <span className="font-semibold">{calc.staffTotal.toLocaleString()} đ</span>
+                                        </div>
+                                        {selectedOrder?.paymentStatus === "Chưa thanh toán" && (
+                                            <div className="flex justify-between text-lg mt-2 text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                                                <span>Tiền phòng ({estimatedCalc.estimatedDuration}h - ước tính):</span>
+                                                <span className="font-semibold">{calc.roomTotal.toLocaleString()} đ</span>
+                                            </div>
+                                        )}
+                                        {selectedOrder?.paymentStatus === "Đã thanh toán" && (
+                                            <>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Tiền phòng ({selectedOrder?.duration}h):</span>
+                                                    <span className="font-semibold">{(selectedOrder?.roomTotal || 0).toLocaleString()} đ</span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Bắt đầu:</span>
+                                                    <span className="font-semibold">{selectedOrder?.startTime ? new Date(selectedOrder.startTime).toLocaleString('vi-VN') : ''}</span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Kết thúc:</span>
+                                                    <span className="font-semibold">{selectedOrder?.endTime ? new Date(selectedOrder.endTime).toLocaleString('vi-VN') : ''}</span>
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="flex justify-between text-3xl font-bold mt-6 border-t pt-6">
+                                            <span>Tổng thanh toán:</span>
+                                            <span className="text-emerald-600">{calc.grandTotal.toLocaleString()} đ</span>
+                                        </div>
+
+                                        <div className="mt-8 grid grid-cols-2 gap-6">
+                                            <div>
+                                                <label className="block text-sm text-slate-600 mb-1">Thanh toán ngân hàng</label>
+                                                <input type="number" value={tempBankPayment} onChange={e => setTempBankPayment(Number(e.target.value))} className="w-full rounded-2xl border px-4 py-3" />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm text-slate-600 mb-1">Thanh toán tiền mặt</label>
+                                                <input type="number" value={tempCashPayment} onChange={e => setTempCashPayment(Number(e.target.value))} className="w-full rounded-2xl border px-4 py-3" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer modal */}
+                                <div className="border-t p-6 flex gap-4 bg-slate-50">
+                                    {selectedOrder?.paymentStatus !== "Đã thanh toán" ? (
+                                        <>
+                                            <button onClick={saveOrderChanges} className="flex-1 py-4 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100">Lưu thay đổi</button>
+                                            <button onClick={completePayment} className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl">Thanh toán & Hoàn tất đơn</button>
+                                        </>
+                                    ) : (
+                                        <div className="w-full py-4 text-center text-emerald-600 font-semibold rounded-2xl bg-emerald-50">✅ Đơn hàng đã chốt thanh toán</div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Notification Popup */}
+                    {notification && (
+                        <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-right-4 duration-300">
+                            <div className={`rounded-3xl shadow-2xl p-6 max-w-md text-white flex items-start gap-4 ${notification.type === "warning" ? "bg-amber-500" : "bg-emerald-500"
+                                }`}>
+                                <div className="text-2xl mt-1">
+                                    {notification.type === "warning" ? "⏰" : "✓"}
+                                </div>
+                                <div className="flex-1">
+                                    <div className="font-bold text-lg">{notification.title}</div>
+                                    <div className="text-sm opacity-95">{notification.message}</div>
+                                </div>
+                                <button
+                                    onClick={() => setNotification(null)}
+                                    className="text-white/70 hover:text-white text-xl mt-0.5 flex-shrink-0"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Room Detail Popup */}
+                    {showRoomDetailModal && selectedRoom && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-auto">
+                                {/* Header */}
+                                <div className="sticky top-0 px-8 py-6 border-b bg-gradient-to-r from-indigo-50 to-blue-50 flex justify-between items-center">
+                                    <div>
+                                        <h2 className="text-3xl font-bold text-slate-800">
+                                            {selectedRoom.roomName || `Phòng ${selectedRoom.roomId}`}
+                                        </h2>
+                                        <p className="text-slate-600 mt-1">Order: {selectedRoom.orderCode}</p>
+                                    </div>
+                                    <button
+                                        onClick={closeRoomDetailModal}
+                                        className="text-3xl text-slate-400 hover:text-slate-600"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                {/* Content */}
+                                <div className="p-8 space-y-8">
+                                    {/* Thời gian đã sử dụng */}
+                                    {selectedRoom.startTime && (
+                                        <div className="text-center p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl text-white">
+                                            <div className="text-sm opacity-90 mb-2">Thời gian đã sử dụng</div>
+                                            <ElapsedTimer startTime={selectedRoom.startTime} small={false} />
+                                        </div>
+                                    )}
+
+                                    {/* Sản phẩm đã dùng */}
+                                    <div>
+                                        <h3 className="text-xl font-bold text-slate-800 mb-4">📦 Sản phẩm đã dùng</h3>
+                                        {selectedRoom.products ? (
+                                            (() => {
+                                                const prods = typeof selectedRoom.products === "string" ? JSON.parse(selectedRoom.products) : selectedRoom.products;
+                                                return prods.length === 0 ? (
+                                                    <div className="text-slate-400 text-center py-6">Không có sản phẩm nào</div>
+                                                ) : (
+                                                    <div className="space-y-3">
+                                                        {prods.map((p, idx) => (
+                                                            <div key={idx} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl hover:bg-slate-100">
+                                                                <div>
+                                                                    <div className="font-semibold text-slate-800">{p.name}</div>
+                                                                    <div className="text-sm text-slate-500">Số lượng: {p.quantity}</div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="font-bold text-emerald-600">
+                                                                        {(Number(p.price) * p.quantity).toLocaleString()}đ
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()
+                                        ) : (
+                                            <div className="text-slate-400 text-center py-6">Không có sản phẩm</div>
+                                        )}
+                                    </div>
+
+                                    {/* Tiếp viên */}
+                                    <div>
+                                        <h3 className="text-xl font-bold text-slate-800 mb-4">👥 Tiếp viên trong phòng</h3>
+                                        {selectedRoom.staffs ? (
+                                            (() => {
+                                                const staffList = typeof selectedRoom.staffs === "string" ? JSON.parse(selectedRoom.staffs) : selectedRoom.staffs;
+                                                return staffList.length === 0 ? (
+                                                    <div className="text-slate-400 text-center py-6">Không có tiếp viên nào</div>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        {staffList.map((s, idx) => (
+                                                            <div key={idx} className="p-4 bg-blue-50 rounded-2xl border border-blue-200">
+                                                                <div className="font-semibold text-slate-800">{s.name}</div>
+                                                                <div className="text-sm text-slate-600 mt-1">
+                                                                    ⏱ {s.hours || 1} giờ
+                                                                </div>
+                                                                <div className="text-sm text-emerald-600 font-semibold mt-2">
+                                                                    {(Number(s.price_per_hour || 0) * (s.hours || 1)).toLocaleString()}đ
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()
+                                        ) : (
+                                            <div className="text-slate-400 text-center py-6">Không có tiếp viên</div>
+                                        )}
+                                    </div>
+
+                                    {/* Khách hàng & Ghi chú */}
+                                    <div className="bg-slate-50 p-6 rounded-2xl">
+                                        <div className="flex justify-between mb-3">
+                                            <div>
+                                                <div className="text-xs text-slate-500 uppercase">Khách hàng</div>
+                                                <div className="font-semibold text-slate-800">{selectedRoom.customerName || "Vãng lai"}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xs text-slate-500 uppercase">Thanh toán</div>
+                                                <div className="font-bold text-emerald-600 text-lg">
+                                                    {Number(selectedRoom.grandTotal || 0).toLocaleString()}đ
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {selectedRoom.note && (
+                                            <div className="mt-4 pt-4 border-t">
+                                                <div className="text-xs text-slate-500 uppercase mb-1">Ghi chú</div>
+                                                <div className="text-slate-700">{selectedRoom.note}</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Close Button */}
+                                <div className="border-t p-6 bg-slate-50">
+                                    <button
+                                        onClick={closeRoomDetailModal}
+                                        className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl transition"
+                                    >
+                                        Đóng
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+    })();
+</script>

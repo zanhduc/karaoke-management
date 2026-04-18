@@ -1,4 +1,60 @@
 var ACCOUNT_SHEET = "Tài khoản";
+var STAFF_SHEET = "Tiếp viên";
+var PRODUCT_SHEET = "Hàng hoá";
+var ROOM_SHEET = "Phòng";
+var ORDER_SHEET = "Đơn hàng";
+var CUSTOMER_SHEET = "Khách hàng";
+var LOG_SHEET = "Log";
+
+// Map headers for sheets that may be auto-created via getSheet().
+// Each getXSheet() also ensures headers exist even if the sheet already existed.
+var SHEET_HEADERS = {
+  "Tài khoản": ["ID", "Tài khoản", "Mật khẩu", "Role", "Tên"],
+  "Tiếp viên": ["ID", "Tên", "SĐT", "Trạng thái", "RoomID", "Giá/giờ"],
+  "Hàng hoá": ["ID", "Tên", "Đơn vị", "Giá", "Số lượng"],
+  "Khách hàng": ["ID", "Tên khách", "SĐT", "% Giảm giá"],
+  Phòng: [
+    "ID",
+    "Tên phòng",
+    "Loại",
+    "Giá/giờ",
+    "Trạng thái",
+    "Thời gian bắt đầu",
+    "Order ID hiện tại",
+  ],
+  "Đơn hàng": [
+    "Mã HĐ",
+    "Tên hoá đơn",
+    "Khách hàng",
+    "Giờ bắt đầu",
+    "Giờ kết thúc",
+    "Thời gian sử dụng",
+    "Hoá đơn",
+    "Tổng tiền dịch vụ",
+    "Tổng tiền giờ",
+    "Giảm theo KH",
+    "Tăng giảm trực tiếp",
+    "Hàng hoá",
+    "Tiếp viên",
+    "RoomId",
+    "Tổng thanh toán",
+    "Thanh toán ngân hàng",
+    "Thanh toán tiền mặt",
+    "Trạng thái thanh toán",
+    "Ghi chú",
+    "Ngày tạo",
+  ],
+  Log: ["Ngày giờ", "Người dùng", "Thay đổi", "Trạng thái", "Thông báo lỗi"],
+};
+
+/** Cột sheet Log (1-based) — khớp hàng tiêu đề bạn đã tạo */
+var LOG_COL = {
+  DATETIME: 1,
+  USER: 2,
+  CHANGE: 3,
+  STATUS: 4,
+  ERROR: 5,
+};
 
 var ACCOUNT_COL = {
   ID: 1,
@@ -8,6 +64,60 @@ var ACCOUNT_COL = {
   NAME: 5,
 };
 
+var STAFF_COL = {
+  ID: 1,
+  NAME: 2,
+  PHONE: 3,
+  STATUS: 4,
+  ROOM_ID: 5,
+  PRICE: 6,
+};
+var ROOM_COL = {
+  ID: 1,
+  NAME: 2,
+  TYPE: 3,
+  PRICE: 4,
+  STATUS: 5,
+  START_TIME: 6,
+  CURRENT_ORDER_ID: 7,
+};
+
+var PRODUCT_COL = {
+  ID: 1,
+  NAME: 2,
+  UNIT: 3,
+  PRICE: 4,
+};
+
+var CUSTOMER_COL = {
+  ID: 1,
+  NAME: 2,
+  PHONE: 3,
+  DISCOUNT_PERCENT: 4,
+};
+
+var ORDER_COL = {
+  ORDER_CODE: 1,
+  ORDER_NAME: 2,
+  CUSTOMER: 3,
+  START_TIME: 4,
+  END_TIME: 5,
+  DURATION: 6,
+  INVOICE: 7,
+  SERVICE_TOTAL: 8,
+  ROOM_TOTAL: 9,
+  DISCOUNT_CUSTOMER: 10,
+  ADJUSTMENT: 11,
+  PRODUCTS: 12,
+  STAFFS: 13,
+  ROOM_ID: 14,
+  GRAND_TOTAL: 15,
+  BANK_PAYMENT: 16,
+  CASH_PAYMENT: 17,
+  PAYMENT_STATUS: 18,
+  NOTE: 19,
+  CREATED_AT: 20,
+};
 var _cachedSpreadsheet = null;
 
 /**
@@ -46,7 +156,7 @@ function getSheet(sheetName, createIfNotExist) {
     // Chuẩn hóa tên sheet để tìm header tương ứng trong object SHEET_HEADERS
     // Lưu ý: SHEET_HEADERS key có thể không khớp nếu tên sheet có dấu đặc biệt
     // Tạm thời dùng tên gốc sheetName
-    if (SHEET_HEADERS[sheetName]) {
+    if (typeof SHEET_HEADERS !== "undefined" && SHEET_HEADERS[sheetName]) {
       sheet.appendRow(SHEET_HEADERS[sheetName]);
     }
   }
@@ -124,6 +234,11 @@ function login(username, password) {
     userProps.setProperty("loginTime", new Date().toISOString());
 
     Logger.log("Login success: " + user.username + " - Role: " + user.role);
+    auditLog(
+      "Đăng nhập thành công — " + user.username + " (" + user.role + ")",
+      "SUCCESS",
+      "",
+    );
     return {
       success: true,
       role: user.role,
@@ -133,6 +248,11 @@ function login(username, password) {
   }
 
   Logger.log("Login failed: " + uname);
+  auditLog(
+    "Đăng nhập thất bại — tài khoản: " + (uname || "(trống)"),
+    "FAIL",
+    "Sai tên đăng nhập hoặc mật khẩu!",
+  );
   return { success: false, message: "Sai tên đăng nhập hoặc mật khẩu!" };
 }
 
@@ -159,12 +279,18 @@ function checkSession() {
  */
 function logout() {
   var userProps = PropertiesService.getUserProperties();
-  userProps.deleteProperty("loggedInUser");
-  userProps.deleteProperty("userRole");
-  userProps.deleteProperty("userName");
-  userProps.deleteProperty("loginTime");
-
-  Logger.log("User logged out");
+  var who = trimVal(userProps.getProperty("loggedInUser"));
+  try {
+    userProps.deleteProperty("loggedInUser");
+    userProps.deleteProperty("userRole");
+    userProps.deleteProperty("userName");
+    userProps.deleteProperty("loginTime");
+    Logger.log("User logged out");
+    auditLog("Đăng xuất" + (who ? " — " + who : ""), "SUCCESS", "");
+  } catch (e) {
+    auditLog("Đăng xuất", "FAIL", String(e.message || e));
+    throw e;
+  }
   return { success: true };
 }
 
@@ -173,6 +299,1445 @@ function logout() {
  */
 function getCurrentUser() {
   return checkSession();
+}
+
+// ============ AUDIT LOG (sheet Log) ============
+
+function getLogSheet() {
+  var s = getSheet(LOG_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow(SHEET_HEADERS[LOG_SHEET]);
+  }
+  return s;
+}
+
+/**
+ * Ghi một dòng nhật ký. Không throw ra ngoài (tránh làm hỏng CRUD chính).
+ * Cột Người dùng: "username (role)" — lấy từ session GAS.
+ */
+function auditLog(changeDescription, status, errorMessage) {
+  try {
+    var sheet = getLogSheet();
+    var props = PropertiesService.getUserProperties();
+    var username = trimVal(props.getProperty("loggedInUser"));
+    var role = trimVal(props.getProperty("userRole"));
+    var displayUser =
+      username || role
+        ? (username || "—") + (role ? " (" + role + ")" : "")
+        : "Chưa đăng nhập / hệ thống";
+
+    sheet.appendRow([
+      new Date(),
+      displayUser,
+      String(changeDescription || ""),
+      status === "FAIL" ? "FAIL" : "SUCCESS",
+      errorMessage != null ? String(errorMessage) : "",
+    ]);
+  } catch (e) {
+    Logger.log("auditLog error: " + e);
+  }
+}
+
+/**
+ * Đọc lịch sử (mới nhất trước). Dùng cho UI sau này.
+ * @param {number} optLimit số dòng tối đa (mặc định 200)
+ */
+function getAuditLogs(optLimit) {
+  var limit = optLimit != null ? Number(optLimit) : 200;
+  if (!isFinite(limit) || limit < 1) limit = 200;
+
+  var sheet = getLogSheet();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  var startRow = Math.max(2, lastRow - limit + 1);
+  var numRows = lastRow - startRow + 1;
+  var data = sheet.getRange(startRow, 1, lastRow, LOG_COL.ERROR).getValues();
+  var res = [];
+
+  for (var i = data.length - 1; i >= 0; i--) {
+    var row = data[i];
+    res.push({
+      datetime: row[LOG_COL.DATETIME - 1],
+      user: row[LOG_COL.USER - 1],
+      change: row[LOG_COL.CHANGE - 1],
+      status: row[LOG_COL.STATUS - 1],
+      error: row[LOG_COL.ERROR - 1],
+    });
+  }
+  return res;
+}
+
+// ===== STAFF(tiếp viên) =====
+
+function getStaffSheet() {
+  var s = getSheet(STAFF_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow(["ID", "Tên", "SĐT", "Trạng thái", "RoomID", "Giá/giờ"]);
+  }
+  return s;
+}
+
+function getStaffs() {
+  var data = getStaffSheet().getDataRange().getValues();
+  var res = [];
+
+  for (var i = 1; i < data.length; i++) {
+    res.push({
+      id: data[i][0],
+      name: data[i][1],
+      phone: data[i][2],
+      status: data[i][3] || "available",
+      current_room_id: data[i][4] || "",
+      price_per_hour: data[i][5] || 0,
+    });
+  }
+  return res;
+}
+
+function addStaff(s) {
+  try {
+    getStaffSheet().appendRow([
+      s.id,
+      s.name,
+      s.phone,
+      "available",
+      "",
+      s.price_per_hour || 0,
+    ]);
+    auditLog(
+      "Tiếp viên [CREATE]: Thêm — " +
+        (s.name || "(không tên)") +
+        " (ID " +
+        s.id +
+        ")",
+      "SUCCESS",
+      "",
+    );
+  } catch (e) {
+    auditLog(
+      "Tiếp viên [CREATE]: Thêm tiếp viên",
+      "FAIL",
+      String(e.message || e),
+    );
+    throw e;
+  }
+}
+
+function updateStaff(s) {
+  try {
+    var sheet = getStaffSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(s.id)) {
+        sheet.getRange(i + 1, 2).setValue(s.name);
+        sheet.getRange(i + 1, 3).setValue(s.phone);
+        sheet.getRange(i + 1, 6).setValue(s.price_per_hour);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog(
+        "Tiếp viên [UPDATE]: Sửa ID " +
+          s.id +
+          " — " +
+          (s.name || "") +
+          " / SĐT / giá giờ",
+        "SUCCESS",
+        "",
+      );
+    } else {
+      auditLog(
+        "Tiếp viên [UPDATE]: ID " + s.id,
+        "FAIL",
+        "Không tìm thấy bản ghi trên sheet",
+      );
+    }
+  } catch (e) {
+    auditLog(
+      "Tiếp viên [UPDATE]: ID " + (s && s.id),
+      "FAIL",
+      String(e.message || e),
+    );
+    throw e;
+  }
+}
+
+function deleteStaff(id) {
+  try {
+    var sheet = getStaffSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) === String(id)) {
+        sheet.deleteRow(i + 1);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog("Tiếp viên [DELETE]: Xoá ID " + id, "SUCCESS", "");
+    } else {
+      auditLog(
+        "Tiếp viên [DELETE]: ID " + id,
+        "FAIL",
+        "Không tìm thấy bản ghi",
+      );
+    }
+  } catch (e) {
+    auditLog("Tiếp viên [DELETE]: ID " + id, "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+// gán vào phòng
+function assignStaffToRoom(staffId, roomId) {
+  if (!staffId) throw new Error("staffId không hợp lệ");
+  try {
+    var sheet = getStaffSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(staffId)) {
+        sheet.getRange(i + 1, STAFF_COL.STATUS).setValue("busy");
+        sheet.getRange(i + 1, STAFF_COL.ROOM_ID).setValue(roomId || "");
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog(
+        "Tiếp viên [ASSIGN]: Gán staff " +
+          staffId +
+          " → phòng " +
+          (roomId || "(trống)"),
+        "SUCCESS",
+        "",
+      );
+    } else {
+      auditLog(
+        "Tiếp viên [ASSIGN]: staff " + staffId,
+        "FAIL",
+        "Không tìm thấy tiếp viên",
+      );
+    }
+  } catch (e) {
+    auditLog(
+      "Tiếp viên [ASSIGN]: staff " + staffId,
+      "FAIL",
+      String(e.message || e),
+    );
+    throw e;
+  }
+}
+
+// rời phòng
+function releaseStaff(staffId) {
+  if (!staffId) throw new Error("staffId không hợp lệ");
+  try {
+    var sheet = getStaffSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(staffId)) {
+        sheet.getRange(i + 1, STAFF_COL.STATUS).setValue("available");
+        sheet.getRange(i + 1, STAFF_COL.ROOM_ID).setValue("");
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog("Tiếp viên [RELEASE]: Nhả staff " + staffId, "SUCCESS", "");
+    } else {
+      auditLog(
+        "Tiếp viên [RELEASE]: staff " + staffId,
+        "FAIL",
+        "Không tìm thấy tiếp viên",
+      );
+    }
+  } catch (e) {
+    auditLog(
+      "Tiếp viên [RELEASE]: staff " + staffId,
+      "FAIL",
+      String(e.message || e),
+    );
+    throw e;
+  }
+}
+
+// ================== ROOM ==================
+
+function getRoomSheet() {
+  var s = getSheet(ROOM_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow([
+      "ID",
+      "Tên phòng",
+      "Loại",
+      "Giá/giờ",
+      "Trạng thái",
+      "Thời gian bắt đầu",
+      "Order ID hiện tại",
+    ]);
+  }
+  return s;
+}
+function getRooms() {
+  var data = getRoomSheet().getDataRange().getValues();
+  var res = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    res.push({
+      id: row[ROOM_COL.ID - 1],
+      name: row[ROOM_COL.NAME - 1],
+      type: row[ROOM_COL.TYPE - 1],
+      price_per_hour: Number(row[ROOM_COL.PRICE - 1]) || 0,
+      status: String(row[ROOM_COL.STATUS - 1] || "available").toLowerCase(),
+      start_time: row[ROOM_COL.START_TIME - 1]
+        ? new Date(row[ROOM_COL.START_TIME - 1]).toISOString()
+        : null,
+      current_order_id: row[ROOM_COL.CURRENT_ORDER_ID - 1] || "",
+    });
+  }
+  return res;
+}
+
+function addRoom(r) {
+  if (!r || !r.id) throw new Error("roomId không hợp lệ");
+  try {
+    getRoomSheet().appendRow([
+      r.id,
+      r.name || "",
+      r.type || "thường",
+      r.price_per_hour != null ? r.price_per_hour : 0,
+      r.status || "available",
+      r.start_time ? new Date(r.start_time) : "",
+      r.current_order_id || "",
+    ]);
+    auditLog(
+      "Phòng [CREATE]: Thêm — " +
+        (r.name || "(không tên)") +
+        " (ID " +
+        r.id +
+        ")",
+      "SUCCESS",
+      "",
+    );
+  } catch (e) {
+    auditLog("Phòng [CREATE]: Thêm phòng", "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+function updateRoom(r) {
+  if (!r || !r.id) throw new Error("roomId không hợp lệ");
+
+  try {
+    var sheet = getRoomSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][ROOM_COL.ID - 1]) === String(r.id)) {
+        if (r.name !== undefined)
+          sheet.getRange(i + 1, ROOM_COL.NAME).setValue(r.name);
+        if (r.type !== undefined)
+          sheet.getRange(i + 1, ROOM_COL.TYPE).setValue(r.type);
+        if (r.price_per_hour !== undefined)
+          sheet.getRange(i + 1, ROOM_COL.PRICE).setValue(r.price_per_hour);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog(
+        "Phòng [UPDATE]: Sửa ID " + r.id + " — tên/loại/giá",
+        "SUCCESS",
+        "",
+      );
+    } else {
+      auditLog("Phòng [UPDATE]: ID " + r.id, "FAIL", "Không tìm thấy phòng");
+    }
+  } catch (e) {
+    auditLog("Phòng [UPDATE]: ID " + r.id, "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+function deleteRoom(id) {
+  if (!id) throw new Error("roomId không hợp lệ");
+  try {
+    var sheet = getRoomSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+    var isOccupied = false;
+
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][ROOM_COL.ID - 1]) === String(id)) {
+        // Kiểm tra xem phòng có đang sử dụng không
+        var roomStatus = String(
+          data[i][ROOM_COL.STATUS - 1] || "",
+        ).toLowerCase();
+        if (roomStatus === "occupied" || roomStatus === "cleaning") {
+          isOccupied = true;
+          break;
+        }
+        sheet.deleteRow(i + 1);
+        found = true;
+        break;
+      }
+    }
+    if (isOccupied) {
+      throw new Error("Không thể xoá phòng đang được sử dụng!");
+    }
+    if (found) {
+      auditLog("Phòng [DELETE]: Xoá ID " + id, "SUCCESS", "");
+    } else {
+      auditLog("Phòng [DELETE]: ID " + id, "FAIL", "Không tìm thấy phòng");
+    }
+  } catch (e) {
+    auditLog("Phòng [DELETE]: ID " + id, "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+function setRoomCleaning(roomId) {
+  if (!roomId) throw new Error("roomId không hợp lệ");
+  updateRoomStatus(roomId, "cleaning");
+}
+function startRoom(roomId, orderId) {
+  if (!roomId) throw new Error("roomId không hợp lệ");
+  if (!orderId) throw new Error("orderId không hợp lệ");
+  try {
+    var sheet = getRoomSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(roomId)) {
+        found = true;
+        var currentStatus = data[i][ROOM_COL.STATUS - 1] || "available";
+        if (String(currentStatus) !== "available") {
+          auditLog(
+            "Phòng [START]: Phòng " + roomId + ", order " + orderId,
+            "FAIL",
+            "Phòng đang được sử dụng!",
+          );
+          throw new Error("Phòng đang được sử dụng!");
+        }
+        sheet.getRange(i + 1, ROOM_COL.STATUS).setValue("occupied");
+        sheet.getRange(i + 1, ROOM_COL.START_TIME).setValue(new Date());
+        sheet.getRange(i + 1, ROOM_COL.CURRENT_ORDER_ID).setValue(orderId);
+        auditLog(
+          "Phòng [START]: Mở phòng " + roomId + ", order " + orderId,
+          "SUCCESS",
+          "",
+        );
+        break;
+      }
+    }
+    if (!found) {
+      auditLog("Phòng [START]: " + roomId, "FAIL", "Không tìm thấy phòng");
+      throw new Error("Không tìm thấy phòng");
+    }
+  } catch (e) {
+    var msg = String(e.message || e);
+    if (
+      msg.indexOf("Phòng đang được sử dụng") === -1 &&
+      msg.indexOf("Không tìm thấy phòng") === -1
+    ) {
+      auditLog("Phòng [START]: " + roomId, "FAIL", msg);
+    }
+    throw e;
+  }
+}
+function endRoom(roomId) {
+  if (!roomId) throw new Error("roomId không hợp lệ");
+  try {
+    var sheet = getRoomSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(roomId)) {
+        sheet.getRange(i + 1, ROOM_COL.STATUS).setValue("available");
+        sheet.getRange(i + 1, ROOM_COL.START_TIME).setValue("");
+        sheet.getRange(i + 1, ROOM_COL.CURRENT_ORDER_ID).setValue("");
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog("Phòng [END]: Kết thúc phòng " + roomId, "SUCCESS", "");
+    } else {
+      auditLog("Phòng [END]: " + roomId, "FAIL", "Không tìm thấy phòng");
+    }
+  } catch (e) {
+    auditLog("Phòng [END]: " + roomId, "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+function updateRoomStatus(roomId, status) {
+  if (!roomId) throw new Error("roomId không hợp lệ");
+  try {
+    var sheet = getRoomSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(roomId)) {
+        sheet.getRange(i + 1, ROOM_COL.STATUS).setValue(status);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog(
+        "Phòng [STATUS]: Phòng " + roomId + " → " + status,
+        "SUCCESS",
+        "",
+      );
+    } else {
+      auditLog("Phòng [STATUS]: " + roomId, "FAIL", "Không tìm thấy phòng");
+    }
+  } catch (e) {
+    auditLog("Phòng [STATUS]: " + roomId, "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+// ================== PRODUCT ==================
+
+function getProductSheet() {
+  var s = getSheet(PRODUCT_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow(["ID", "Tên", "Đơn vị", "Giá"]);
+  }
+  return s;
+}
+
+function getProducts() {
+  var data = getProductSheet().getDataRange().getValues();
+  var res = [];
+
+  for (var i = 1; i < data.length; i++) {
+    res.push({
+      id: data[i][0],
+      name: data[i][1],
+      unit: data[i][2],
+      price: data[i][3],
+    });
+  }
+  return res;
+}
+
+function addProduct(p) {
+  try {
+    getProductSheet().appendRow([p.id, p.name, p.unit || "", p.price || 0]);
+    auditLog(
+      "Hàng hoá [CREATE]: Thêm — " +
+        (p.name || "(không tên)") +
+        " (ID " +
+        p.id +
+        ")",
+      "SUCCESS",
+      "",
+    );
+  } catch (e) {
+    auditLog("Hàng hoá [CREATE]: Thêm hàng", "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+function updateProduct(p) {
+  try {
+    var sheet = getProductSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(p.id)) {
+        sheet.getRange(i + 1, 2).setValue(p.name);
+        sheet.getRange(i + 1, 4).setValue(p.price);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog(
+        "Hàng hoá [UPDATE]: Sửa ID " + p.id + " — " + (p.name || "") + " / giá",
+        "SUCCESS",
+        "",
+      );
+    } else {
+      auditLog("Hàng hoá [UPDATE]: ID " + p.id, "FAIL", "Không tìm thấy hàng");
+    }
+  } catch (e) {
+    auditLog(
+      "Hàng hoá [UPDATE]: ID " + (p && p.id),
+      "FAIL",
+      String(e.message || e),
+    );
+    throw e;
+  }
+}
+
+function deleteProduct(id) {
+  try {
+    var sheet = getProductSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) === String(id)) {
+        sheet.deleteRow(i + 1);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog("Hàng hoá [DELETE]: Xoá ID " + id, "SUCCESS", "");
+    } else {
+      auditLog("Hàng hoá [DELETE]: ID " + id, "FAIL", "Không tìm thấy hàng");
+    }
+  } catch (e) {
+    auditLog("Hàng hoá [DELETE]: ID " + id, "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+// ================== CUSTOMER (KHÁCH QUEN) ==================
+
+function getCustomerSheet() {
+  var s = getSheet(CUSTOMER_SHEET, true);
+  if (s.getLastRow() === 0) {
+    s.appendRow(["ID", "Tên khách", "SĐT", "% Giảm giá"]);
+  }
+  return s;
+}
+
+function getCustomers() {
+  var data = getCustomerSheet().getDataRange().getValues();
+  var res = [];
+
+  for (var i = 1; i < data.length; i++) {
+    res.push({
+      id: data[i][CUSTOMER_COL.ID - 1],
+      name: data[i][CUSTOMER_COL.NAME - 1],
+      phone: data[i][CUSTOMER_COL.PHONE - 1],
+      discountPercent: Number(data[i][CUSTOMER_COL.DISCOUNT_PERCENT - 1]) || 0,
+    });
+  }
+  return res;
+}
+
+function addCustomer(c) {
+  try {
+    getCustomerSheet().appendRow([
+      c.id,
+      c.name || "",
+      c.phone || "",
+      Number(c.discountPercent) || 0,
+    ]);
+    auditLog(
+      "Khách quen [CREATE]: Thêm — " +
+        (c.name || "(không tên)") +
+        " (ID " +
+        c.id +
+        ")",
+      "SUCCESS",
+      "",
+    );
+  } catch (e) {
+    auditLog("Khách quen [CREATE]: Thêm khách", "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+function updateCustomer(c) {
+  try {
+    var sheet = getCustomerSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][CUSTOMER_COL.ID - 1]) === String(c.id)) {
+        sheet.getRange(i + 1, CUSTOMER_COL.NAME).setValue(c.name || "");
+        sheet.getRange(i + 1, CUSTOMER_COL.PHONE).setValue(c.phone || "");
+        sheet
+          .getRange(i + 1, CUSTOMER_COL.DISCOUNT_PERCENT)
+          .setValue(Number(c.discountPercent) || 0);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog(
+        "Khách quen [UPDATE]: Sửa ID " + c.id + " — " + (c.name || ""),
+        "SUCCESS",
+        "",
+      );
+    } else {
+      auditLog(
+        "Khách quen [UPDATE]: ID " + c.id,
+        "FAIL",
+        "Không tìm thấy khách",
+      );
+    }
+  } catch (e) {
+    auditLog(
+      "Khách quen [UPDATE]: ID " + (c && c.id),
+      "FAIL",
+      String(e.message || e),
+    );
+    throw e;
+  }
+}
+
+function deleteCustomer(id) {
+  try {
+    var sheet = getCustomerSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][CUSTOMER_COL.ID - 1]) === String(id)) {
+        sheet.deleteRow(i + 1);
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      auditLog("Khách quen [DELETE]: Xoá ID " + id, "SUCCESS", "");
+    } else {
+      auditLog("Khách quen [DELETE]: ID " + id, "FAIL", "Không tìm thấy khách");
+    }
+  } catch (e) {
+    auditLog("Khách quen [DELETE]: ID " + id, "FAIL", String(e.message || e));
+    throw e;
+  }
+}
+
+// ================== DASHBOARD STATISTICS ==================
+
+/**
+ * Thống kê phòng theo trạng thái
+ */
+function getRoomStatistics() {
+  var rooms = getRooms();
+  var stats = {
+    total: rooms.length,
+    available: 0,
+    occupied: 0,
+    cleaning: 0,
+  };
+
+  for (var i = 0; i < rooms.length; i++) {
+    var status = String(rooms[i].status || "available").toLowerCase();
+    if (status === "occupied") {
+      stats.occupied++;
+    } else if (status === "cleaning") {
+      stats.cleaning++;
+    } else {
+      stats.available++;
+    }
+  }
+
+  return stats;
+}
+
+/**
+ * Tổng số tiếp viên
+ */
+function getTotalStaffCount() {
+  return getStaffs().length;
+}
+
+/**
+ * Thống kê tiếp viên theo trạng thái
+ */
+function getStaffStatistics() {
+  var staffs = getStaffs();
+  var stats = {
+    total: staffs.length,
+    available: 0,
+    busy: 0,
+  };
+
+  for (var i = 0; i < staffs.length; i++) {
+    var status = String(staffs[i].status || "available").toLowerCase();
+    if (status === "busy") {
+      stats.busy++;
+    } else {
+      stats.available++;
+    }
+  }
+
+  return stats;
+}
+
+// ====================== ORDER FUNCTIONS ======================
+
+function getOrderSheet() {
+  try {
+    Logger.log("getOrderSheet: Starting...");
+    var s = getSheet(ORDER_SHEET, true);
+    Logger.log("getOrderSheet: Got sheet, lastRow=" + s.getLastRow());
+
+    if (s.getLastRow() === 0) {
+      Logger.log("getOrderSheet: Sheet empty, appending headers");
+      s.appendRow(SHEET_HEADERS[ORDER_SHEET]);
+    }
+
+    Logger.log("getOrderSheet: Returning sheet with lastRow=" + s.getLastRow());
+    return s;
+  } catch (e) {
+    Logger.log("ERROR in getOrderSheet: " + e.message);
+    throw e;
+  }
+}
+
+/**
+ * Sinh mã hoá đơn theo chuẩn Việt Nam
+ * Ví dụ: HD20260409-0001
+ */
+function generateOrderCode() {
+  var dateStr = Utilities.formatDate(new Date(), "GMT+7", "yyyyMMdd");
+  var sheet = getOrderSheet();
+  var lastRow = sheet.getLastRow();
+  var nextNum = 1;
+
+  if (lastRow >= 2) {
+    var lastCode = sheet.getRange(lastRow, ORDER_COL.ORDER_CODE).getValue();
+    if (lastCode && lastCode.toString().includes(dateStr)) {
+      var num = parseInt(lastCode.toString().split("-")[1]) || 0;
+      nextNum = num + 1;
+    }
+  }
+
+  return `HD${dateStr}-${nextNum.toString().padStart(4, "0")}`;
+}
+
+/**
+ * Tạo đơn hàng mới
+ * - startTime = lúc tạo order
+ * - endTime = rỗng (sẽ set lúc thanh toán)
+ * - duration = rỗng (sẽ tính lúc thanh toán)
+ * - roomTotal = 0 (sẽ tính lúc thanh toán)
+ * - staffs = không có hours (tính từ lúc add vào order)
+ */
+function createOrder(orderData) {
+  if (!orderData || !orderData.roomId) {
+    throw new Error("Thiếu thông tin phòng (roomId)");
+  }
+
+  try {
+    var orderCode = generateOrderCode();
+    var now = new Date();
+    var startTime = orderData.startTime ? new Date(orderData.startTime) : now;
+
+    var row = [
+      orderCode,
+      orderData.orderName ||
+        `Hoá đơn phòng ${orderData.roomName || orderData.roomId}`,
+      orderData.customerName || "Khách vãng lai",
+      startTime,
+      "", // endTime - rỗng, sẽ set lúc thanh toán
+      "", // duration - rỗng, sẽ tính lúc thanh toán
+      orderCode,
+      Number(orderData.serviceTotal) || 0,
+      0, // roomTotal = 0, sẽ tính lúc thanh toán
+      Number(orderData.discountCustomer) || 0,
+      Number(orderData.adjustment) || 0,
+      JSON.stringify(orderData.products || []),
+      JSON.stringify(orderData.staffs || []), // không có hours
+      orderData.roomId,
+      Number(orderData.grandTotal) || 0,
+      Number(orderData.bankPayment) || 0,
+      Number(orderData.cashPayment) || 0,
+      orderData.paymentStatus || "Chưa thanh toán",
+      orderData.note || "",
+      now,
+    ];
+
+    getOrderSheet().appendRow(row);
+
+    // Cập nhật trạng thái phòng
+    startRoom(orderData.roomId, orderCode);
+
+    // Cập nhật nhân viên thành "đang bận"
+    if (orderData.staffs && Array.isArray(orderData.staffs)) {
+      orderData.staffs.forEach(function (staff) {
+        if (staff.id) {
+          try {
+            assignStaffToRoom(staff.id, orderData.roomId);
+          } catch (e) {
+            // Log lỗi nhưng không dừng tạo order
+            auditLog(
+              `Cập nhật nhân viên ${staff.id} thất bại`,
+              "FAIL",
+              e.message || e,
+            );
+          }
+        }
+      });
+    }
+
+    // Ghi log
+    auditLog(
+      `Tạo hoá đơn ${orderCode} - Phòng ${orderData.roomName || orderData.roomId} - Khách: ${orderData.customerName || "Vãng lai"}`,
+      "SUCCESS",
+      "",
+    );
+
+    return {
+      success: true,
+      orderCode: orderCode,
+      message: "Tạo đơn hàng thành công",
+    };
+  } catch (e) {
+    auditLog(
+      `Tạo hoá đơn thất bại - Phòng ${orderData.roomId}`,
+      "FAIL",
+      e.message || e,
+    );
+    throw e;
+  }
+}
+
+/**
+ * Lấy danh sách đơn hàng (mới nhất lên trên)
+ */
+function getOrders(limit = 100) {
+  try {
+    var sheet = getOrderSheet();
+    if (!sheet) {
+      Logger.log("ERROR: getOrderSheet() returned null");
+      return [];
+    }
+
+    var lastRow = sheet.getLastRow();
+    Logger.log("Order sheet lastRow: " + lastRow);
+
+    if (lastRow < 2) {
+      Logger.log("getOrders: No data rows (lastRow < 2)");
+      return [];
+    }
+
+    var data = sheet.getDataRange().getValues();
+    Logger.log("Order sheet data length: " + data.length);
+    var result = [];
+
+    for (var i = lastRow; i >= 2; i--) {
+      var row = data[i - 1];
+
+      // Parse JSON strings for products and staffs
+      var productsData = row[ORDER_COL.PRODUCTS - 1];
+      var staffsData = row[ORDER_COL.STAFFS - 1];
+
+      try {
+        if (typeof productsData === "string" && productsData) {
+          productsData = JSON.parse(productsData);
+        }
+      } catch (e) {
+        Logger.log(
+          "Warning: Could not parse products for order " +
+            row[ORDER_COL.ORDER_CODE - 1] +
+            ": " +
+            e.message,
+        );
+        productsData = [];
+      }
+
+      try {
+        if (typeof staffsData === "string" && staffsData) {
+          staffsData = JSON.parse(staffsData);
+        }
+      } catch (e) {
+        Logger.log(
+          "Warning: Could not parse staffs for order " +
+            row[ORDER_COL.ORDER_CODE - 1] +
+            ": " +
+            e.message,
+        );
+        staffsData = [];
+      }
+
+      result.push({
+        orderCode: row[ORDER_COL.ORDER_CODE - 1],
+        orderName: row[ORDER_COL.ORDER_NAME - 1],
+        customerName: row[ORDER_COL.CUSTOMER - 1],
+        startTime: row[ORDER_COL.START_TIME - 1]
+          ? new Date(row[ORDER_COL.START_TIME - 1]).toISOString()
+          : "",
+        endTime: row[ORDER_COL.END_TIME - 1]
+          ? new Date(row[ORDER_COL.END_TIME - 1]).toISOString()
+          : "",
+        duration: row[ORDER_COL.DURATION - 1],
+        serviceTotal: row[ORDER_COL.SERVICE_TOTAL - 1],
+        roomTotal: row[ORDER_COL.ROOM_TOTAL - 1],
+        discountCustomer: row[ORDER_COL.DISCOUNT_CUSTOMER - 1],
+        adjustment: row[ORDER_COL.ADJUSTMENT - 1],
+        products: productsData,
+        staffs: staffsData,
+        roomId: row[ORDER_COL.ROOM_ID - 1],
+        roomName: getRoomNameById(row[ORDER_COL.ROOM_ID - 1]),
+        grandTotal: row[ORDER_COL.GRAND_TOTAL - 1],
+        bankPayment: row[ORDER_COL.BANK_PAYMENT - 1],
+        cashPayment: row[ORDER_COL.CASH_PAYMENT - 1],
+        paymentStatus: row[ORDER_COL.PAYMENT_STATUS - 1],
+        note: row[ORDER_COL.NOTE - 1],
+        createdAt: row[ORDER_COL.CREATED_AT - 1]
+          ? new Date(row[ORDER_COL.CREATED_AT - 1]).toISOString()
+          : "",
+      });
+
+      if (result.length >= limit) break;
+    }
+
+    Logger.log("getOrders: Returning " + result.length + " orders");
+    return result;
+  } catch (e) {
+    Logger.log("ERROR in getOrders: " + e.message);
+    auditLog("getOrders error", "FAIL", e.message);
+    return [];
+  }
+}
+
+/**
+ * Get a single order by its code
+ */
+function getOrderByCode(orderCode) {
+  try {
+    var sheet = getOrderSheet();
+    if (!sheet) {
+      Logger.log("ERROR: getOrderSheet() returned null");
+      return null;
+    }
+
+    var data = sheet.getDataRange().getValues();
+
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+
+      if (String(row[ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+        // Parse JSON strings for products and staffs
+        var productsData = row[ORDER_COL.PRODUCTS - 1];
+        var staffsData = row[ORDER_COL.STAFFS - 1];
+
+        try {
+          if (typeof productsData === "string" && productsData) {
+            productsData = JSON.parse(productsData);
+          }
+        } catch (e) {
+          Logger.log(
+            "Warning: Could not parse products for order " +
+              orderCode +
+              ": " +
+              e.message,
+          );
+          productsData = [];
+        }
+
+        try {
+          if (typeof staffsData === "string" && staffsData) {
+            staffsData = JSON.parse(staffsData);
+          }
+        } catch (e) {
+          Logger.log(
+            "Warning: Could not parse staffs for order " +
+              orderCode +
+              ": " +
+              e.message,
+          );
+          staffsData = [];
+        }
+
+        return {
+          orderCode: row[ORDER_COL.ORDER_CODE - 1],
+          orderName: row[ORDER_COL.ORDER_NAME - 1],
+          customerName: row[ORDER_COL.CUSTOMER - 1],
+          startTime: row[ORDER_COL.START_TIME - 1]
+            ? new Date(row[ORDER_COL.START_TIME - 1]).toISOString()
+            : "",
+          endTime: row[ORDER_COL.END_TIME - 1]
+            ? new Date(row[ORDER_COL.END_TIME - 1]).toISOString()
+            : "",
+          duration: row[ORDER_COL.DURATION - 1],
+          serviceTotal: row[ORDER_COL.SERVICE_TOTAL - 1],
+          roomTotal: row[ORDER_COL.ROOM_TOTAL - 1],
+          discountCustomer: row[ORDER_COL.DISCOUNT_CUSTOMER - 1],
+          adjustment: row[ORDER_COL.ADJUSTMENT - 1],
+          products: productsData,
+          staffs: staffsData,
+          roomId: row[ORDER_COL.ROOM_ID - 1],
+          roomName: getRoomNameById(row[ORDER_COL.ROOM_ID - 1]),
+          grandTotal: row[ORDER_COL.GRAND_TOTAL - 1],
+          bankPayment: row[ORDER_COL.BANK_PAYMENT - 1],
+          cashPayment: row[ORDER_COL.CASH_PAYMENT - 1],
+          paymentStatus: row[ORDER_COL.PAYMENT_STATUS - 1],
+          note: row[ORDER_COL.NOTE - 1],
+          createdAt: row[ORDER_COL.CREATED_AT - 1]
+            ? new Date(row[ORDER_COL.CREATED_AT - 1]).toISOString()
+            : "",
+        };
+      }
+    }
+
+    Logger.log("getOrderByCode: Order not found - " + orderCode);
+    return null;
+  } catch (e) {
+    Logger.log("ERROR in getOrderByCode: " + e.message);
+    auditLog("getOrderByCode error", "FAIL", e.message);
+    return null;
+  }
+}
+
+/**
+ * Diagnostic function to check sheets and data status
+ */
+function diagnosticCheckSheets() {
+  Logger.log("=== DIAGNOSTIC CHECK ===");
+
+  try {
+    var ss = getSpreadsheet();
+    var sheets = ss.getSheets();
+    Logger.log("Total sheets: " + sheets.length);
+
+    for (var i = 0; i < sheets.length; i++) {
+      Logger.log(
+        "Sheet " +
+          i +
+          ": " +
+          sheets[i].getName() +
+          " (rows: " +
+          sheets[i].getLastRow() +
+          ")",
+      );
+    }
+
+    // Check Order sheet specifically
+    Logger.log("\n=== Order Sheet Check ===");
+    var orderSheet = getSheet(ORDER_SHEET, false);
+    if (orderSheet) {
+      Logger.log("Order sheet found: " + orderSheet.getName());
+      Logger.log("Last row: " + orderSheet.getLastRow());
+      if (orderSheet.getLastRow() > 0) {
+        var headerRow = orderSheet.getRange(1, 1, 1, 20).getValues()[0];
+        Logger.log("Header row: " + headerRow);
+      }
+      if (orderSheet.getLastRow() > 1) {
+        var dataRow = orderSheet.getRange(2, 1, 1, 20).getValues()[0];
+        Logger.log("First data row: " + dataRow);
+      }
+    } else {
+      Logger.log("Order sheet NOT found");
+    }
+
+    // Try calling getRooms
+    Logger.log("\n=== getRooms Test ===");
+    var rooms = getRooms();
+    Logger.log(
+      "getRooms returned: " +
+        (rooms ? "Array with " + rooms.length + " items" : "null"),
+    );
+
+    // Try calling getOrders
+    Logger.log("\n=== getOrders Test ===");
+    var orders = getOrders();
+    Logger.log(
+      "getOrders returned: " +
+        (orders ? "Array with " + orders.length + " items" : "null"),
+    );
+  } catch (e) {
+    Logger.log("DIAGNOSTIC ERROR: " + e.message);
+  }
+}
+
+/**
+ * Lấy tên phòng theo ID
+ */
+function getRoomNameById(roomId) {
+  var rooms = getRooms();
+  for (var i = 0; i < rooms.length; i++) {
+    if (String(rooms[i].id) === String(roomId)) {
+      return rooms[i].name;
+    }
+  }
+  return "Phòng " + roomId;
+}
+
+/**
+ * Cập nhật order (sửa sản phẩm, tiếp viên, ghi chú...)
+ */
+function updateOrder(orderCode, updatedData) {
+  if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
+
+  try {
+    var sheet = getOrderSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+        // Cập nhật các cột
+        if (updatedData.products != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.PRODUCTS)
+            .setValue(
+              typeof updatedData.products === "string"
+                ? updatedData.products
+                : JSON.stringify(updatedData.products),
+            );
+        }
+        if (updatedData.staffs != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.STAFFS)
+            .setValue(
+              typeof updatedData.staffs === "string"
+                ? updatedData.staffs
+                : JSON.stringify(updatedData.staffs),
+            );
+        }
+        if (updatedData.note != null) {
+          sheet.getRange(i + 1, ORDER_COL.NOTE).setValue(updatedData.note);
+        }
+        if (updatedData.grandTotal != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.GRAND_TOTAL)
+            .setValue(updatedData.grandTotal);
+        }
+        if (updatedData.bankPayment != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.BANK_PAYMENT)
+            .setValue(updatedData.bankPayment);
+        }
+        if (updatedData.cashPayment != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.CASH_PAYMENT)
+            .setValue(updatedData.cashPayment);
+        }
+
+        auditLog(`Cập nhật hoá đơn ${orderCode}`, "SUCCESS", "");
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw new Error("Không tìm thấy hoá đơn: " + orderCode);
+    }
+
+    return { success: true, message: "Cập nhật hoá đơn thành công" };
+  } catch (e) {
+    auditLog(`Cập nhật hoá đơn ${orderCode}`, "FAIL", e.message || e);
+    throw e;
+  }
+}
+
+/**
+ * Chốt thanh toán cho order
+ * - Cập nhật endTime = hiện tại
+ * - Tính duration = làm tròn lên theo giờ
+ * - Tính roomTotal = roomPrice × duration
+ * - Cập nhật grandTotal
+ * - Giải phóng nhân viên
+ */
+function markOrderAsPaid(orderCode, paymentData) {
+  if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
+
+  try {
+    var sheet = getOrderSheet();
+    var data = sheet.getDataRange().getValues();
+    var roomId = null;
+    var startTime = null;
+    var staffs = null;
+    var found = false;
+    var now = new Date();
+    var endTime = now;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+        startTime = new Date(data[i][ORDER_COL.START_TIME - 1]);
+        roomId = data[i][ORDER_COL.ROOM_ID - 1];
+
+        // Parse staffs
+        var staffsData = data[i][ORDER_COL.STAFFS - 1];
+        try {
+          if (typeof staffsData === "string" && staffsData) {
+            staffs = JSON.parse(staffsData);
+          }
+        } catch (e) {
+          staffs = [];
+        }
+
+        // Tính duration (làm tròn lên theo giờ)
+        var durationMs = endTime.getTime() - startTime.getTime();
+        var durationHours = durationMs / (1000 * 60 * 60);
+        var duration = Math.ceil(durationHours);
+
+        // Lấy giá phòng và tính roomTotal
+        var room = null;
+        var rooms = getRooms();
+        for (var j = 0; j < rooms.length; j++) {
+          if (String(rooms[j].id) === String(roomId)) {
+            room = rooms[j];
+            break;
+          }
+        }
+
+        var roomPrice = room ? Number(room.price_per_hour) || 0 : 0;
+        var roomTotal = roomPrice * duration;
+
+        // Tính tổng tiếp viên (tiếp viên lấy duration của phòng)
+        var staffTotal = 0;
+        if (staffs && Array.isArray(staffs)) {
+          for (var k = 0; k < staffs.length; k++) {
+            staffTotal += (Number(staffs[k].price_per_hour) || 0) * duration;
+          }
+        }
+
+        // Tính lại grandTotal
+        var serviceTotal = data[i][ORDER_COL.SERVICE_TOTAL - 1] || 0;
+        var discountCustomer = data[i][ORDER_COL.DISCOUNT_CUSTOMER - 1] || 0;
+        var adjustment = data[i][ORDER_COL.ADJUSTMENT - 1] || 0;
+        var productTotal = data[i][ORDER_COL.PRODUCTS - 1]
+          ? (function () {
+              try {
+                var prods =
+                  typeof data[i][ORDER_COL.PRODUCTS - 1] === "string"
+                    ? JSON.parse(data[i][ORDER_COL.PRODUCTS - 1])
+                    : data[i][ORDER_COL.PRODUCTS - 1];
+                var sum = 0;
+                if (Array.isArray(prods)) {
+                  for (var p = 0; p < prods.length; p++) {
+                    sum +=
+                      (Number(prods[p].price) || 0) *
+                      (Number(prods[p].quantity) || 1);
+                  }
+                }
+                return sum;
+              } catch (e) {
+                return 0;
+              }
+            })()
+          : 0;
+
+        var newServiceTotal = productTotal + staffTotal;
+        var subtotal = roomTotal + newServiceTotal;
+        var grandTotal = Math.max(
+          0,
+          subtotal - Number(discountCustomer) + Number(adjustment),
+        );
+
+        // Cập nhật các cột
+        sheet.getRange(i + 1, ORDER_COL.END_TIME).setValue(endTime);
+        sheet.getRange(i + 1, ORDER_COL.DURATION).setValue(duration);
+        sheet.getRange(i + 1, ORDER_COL.ROOM_TOTAL).setValue(roomTotal);
+        sheet
+          .getRange(i + 1, ORDER_COL.SERVICE_TOTAL)
+          .setValue(newServiceTotal);
+        sheet.getRange(i + 1, ORDER_COL.GRAND_TOTAL).setValue(grandTotal);
+
+        // Cập nhật thanh toán
+        sheet
+          .getRange(i + 1, ORDER_COL.BANK_PAYMENT)
+          .setValue(paymentData.bankPayment || 0);
+        sheet
+          .getRange(i + 1, ORDER_COL.CASH_PAYMENT)
+          .setValue(paymentData.cashPayment || 0);
+        sheet
+          .getRange(i + 1, ORDER_COL.PAYMENT_STATUS)
+          .setValue("Đã thanh toán");
+
+        auditLog(
+          `Chốt thanh toán hoá đơn ${orderCode} - Duration: ${duration}h`,
+          "SUCCESS",
+          "",
+        );
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw new Error("Không tìm thấy hoá đơn: " + orderCode);
+    }
+
+    // Giải phóng nhân viên
+    if (staffs && Array.isArray(staffs)) {
+      for (var s = 0; s < staffs.length; s++) {
+        if (staffs[s].id) {
+          try {
+            releaseStaff(staffs[s].id);
+          } catch (e) {
+            auditLog(
+              `Giải phóng nhân viên ${staffs[s].id} thất bại`,
+              "FAIL",
+              e.message || e,
+            );
+          }
+        }
+      }
+    }
+
+    // Cập nhật trạng thái phòng thành trống
+    if (roomId) {
+      endRoom(roomId);
+    }
+
+    return { success: true, message: "Chốt thanh toán thành công" };
+  } catch (e) {
+    auditLog(`Chốt thanh toán ${orderCode}`, "FAIL", e.message || e);
+    throw e;
+  }
+}
+
+/**
+ * Kiểm tra các đơn hàng gần kết thúc (thêm thông báo)
+ * Khi phòng còn 10 phút nữa kết thúc
+ */
+function checkOrdersNearingEnd() {
+  var sheet = getOrderSheet();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  var data = sheet.getDataRange().getValues();
+  var result = [];
+  var now = new Date();
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var paymentStatus = row[ORDER_COL.PAYMENT_STATUS - 1];
+    var endTime = row[ORDER_COL.END_TIME - 1];
+
+    // Chỉ check order chưa thanh toán
+    if (paymentStatus !== "Đã thanh toán" && endTime) {
+      var end = new Date(endTime);
+      var timeDiff = end.getTime() - now.getTime();
+      var minutesLeft = Math.floor(timeDiff / 60000);
+
+      // Nếu còn 10 phút hoặc ít hơn nhưng > 0
+      if (minutesLeft >= 0 && minutesLeft <= 10) {
+        result.push({
+          orderCode: row[ORDER_COL.ORDER_CODE - 1],
+          roomId: row[ORDER_COL.ROOM_ID - 1],
+          roomName: getRoomNameById(row[ORDER_COL.ROOM_ID - 1]),
+          customerName: row[ORDER_COL.CUSTOMER - 1],
+          minutesLeft: minutesLeft,
+        });
+      }
+    }
+  }
+
+  return result;
 }
 
 // ============ ROUTES ============
