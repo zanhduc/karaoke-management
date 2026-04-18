@@ -92,12 +92,12 @@
       }
 
       return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 md:p-6">
           <div className="max-w-7xl mx-auto">
             {/* Header */}
-            <div className="mb-8">
-              <h1 className="text-4xl font-bold text-slate-900 mb-2">📊 Dashboard Quản Lý</h1>
-              <p className="text-slate-600">Thống kê phòng, tiếp viên và hoạt động (Chỉ admin)</p>
+            <div className="mb-6 md:mb-8">
+              <h1 className="text-2xl md:text-4xl font-bold text-slate-900 mb-1 md:mb-2">📊 Dashboard Quản Lý</h1>
+              <p className="text-sm md:text-base text-slate-600">Thống kê phòng, tiếp viên và hoạt động</p>
             </div>
 
             {error && (
@@ -109,56 +109,56 @@
             {/* Room Statistics */}
             <div className="mb-8">
               <h2 className="text-2xl font-bold text-slate-900 mb-4">🏨 Thống Kê Phòng</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                 {/* Total Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-blue-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Tổng Phòng</p>
-                      <p className="text-3xl font-bold text-slate-900 mt-2">
+                      <p className="text-slate-600 text-xs md:text-sm font-medium">Tổng Phòng</p>
+                      <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-1 md:mt-2">
                         {roomStats?.total || 0}
                       </p>
                     </div>
-                    <div className="text-4xl">🏠</div>
+                    <div className="text-2xl md:text-4xl">🏠</div>
                   </div>
                 </div>
 
                 {/* Available Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-emerald-500">
+                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-emerald-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Phòng Trống</p>
-                      <p className="text-3xl font-bold text-emerald-600 mt-2">
+                      <p className="text-slate-600 text-xs md:text-sm font-medium">Phòng Trống</p>
+                      <p className="text-2xl md:text-3xl font-bold text-emerald-600 mt-1 md:mt-2">
                         {roomStats?.available || 0}
                       </p>
                     </div>
-                    <div className="text-4xl">✅</div>
+                    <div className="text-2xl md:text-4xl">✅</div>
                   </div>
                 </div>
 
                 {/* Occupied Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-rose-500">
+                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-rose-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Đang Hoạt Động</p>
-                      <p className="text-3xl font-bold text-rose-600 mt-2">
+                      <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Hoạt Động</p>
+                      <p className="text-2xl md:text-3xl font-bold text-rose-600 mt-1 md:mt-2">
                         {roomStats?.occupied || 0}
                       </p>
                     </div>
-                    <div className="text-4xl">🎤</div>
+                    <div className="text-2xl md:text-4xl">🎤</div>
                   </div>
                 </div>
 
                 {/* Cleaning Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-amber-500">
+                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-amber-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Đang Dọn</p>
-                      <p className="text-3xl font-bold text-amber-600 mt-2">
+                      <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Dọn</p>
+                      <p className="text-2xl md:text-3xl font-bold text-amber-600 mt-1 md:mt-2">
                         {roomStats?.cleaning || 0}
                       </p>
                     </div>
-                    <div className="text-4xl">🧹</div>
+                    <div className="text-2xl md:text-4xl">🧹</div>
                   </div>
                 </div>
               </div>
@@ -219,50 +219,50 @@
 
             {/* Staff Statistics */}
             <div>
-              <h2 className="text-2xl font-bold text-slate-900 mb-4">👥 Thống Kê Tiếp Viên</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <h2 className="text-xl md:text-2xl font-bold text-slate-900 mb-4">👥 Thống Kê Tiếp Viên</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
                 {/* Total Staff */}
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-indigo-500">
+                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-indigo-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Tổng Tiếp Viên</p>
-                      <p className="text-4xl font-bold text-slate-900 mt-2">
+                      <p className="text-slate-600 text-xs md:text-sm font-medium">Tổng Tiếp Viên</p>
+                      <p className="text-3xl md:text-4xl font-bold text-slate-900 mt-1 md:mt-2">
                         {staffStats?.total || 0}
                       </p>
                     </div>
-                    <div className="text-5xl">👥</div>
+                    <div className="text-3xl md:text-5xl">👥</div>
                   </div>
                 </div>
 
                 {/* Available Staff */}
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-emerald-500">
+                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-emerald-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Sẵn Sàng</p>
-                      <p className="text-4xl font-bold text-emerald-600 mt-2">
+                      <p className="text-slate-600 text-xs md:text-sm font-medium">Sẵn Sàng</p>
+                      <p className="text-3xl md:text-4xl font-bold text-emerald-600 mt-1 md:mt-2">
                         {staffStats?.available || 0}
                       </p>
-                      <p className="text-xs text-slate-500 mt-2">
+                      <p className="text-xs text-slate-500 mt-1 md:mt-2">
                         {staffStats?.total > 0 && `${Math.round((staffStats.available / staffStats.total) * 100)}%`}
                       </p>
                     </div>
-                    <div className="text-5xl">🟢</div>
+                    <div className="text-3xl md:text-5xl">🟢</div>
                   </div>
                 </div>
 
                 {/* Busy Staff */}
-                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-rose-500">
+                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-rose-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Đang Bận</p>
-                      <p className="text-4xl font-bold text-rose-600 mt-2">
+                      <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Bận</p>
+                      <p className="text-3xl md:text-4xl font-bold text-rose-600 mt-1 md:mt-2">
                         {staffStats?.busy || 0}
                       </p>
-                      <p className="text-xs text-slate-500 mt-2">
+                      <p className="text-xs text-slate-500 mt-1 md:mt-2">
                         {staffStats?.total > 0 && `${Math.round((staffStats.busy / staffStats.total) * 100)}%`}
                       </p>
                     </div>
-                    <div className="text-5xl">🔴</div>
+                    <div className="text-3xl md:text-5xl">🔴</div>
                   </div>
                 </div>
               </div>

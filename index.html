@@ -4,6 +4,7 @@
 <head>
   <base target="_top" />
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Đăng Nhập Quản Lý Kho</title>
 
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -37,13 +38,35 @@
       padding: 0;
     }
 
-    /* Đã comment các CSS không liên quan đến Login (CSS bảng, scrollbar, page-container...) */
-    /*
-      .page-container { display: none; }
-      .page-container.active { display: block; animation: fadeIn 0.3s; }
-      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-      ...
-      */
+    /* Mobile sidebar animation */
+    .sidebar-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 40;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .sidebar-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    @media (max-width: 767px) {
+      .mobile-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 50;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        width: 260px;
+      }
+      .mobile-sidebar.open {
+        transform: translateX(0);
+      }
+    }
   </style>
 </head>
 
@@ -353,6 +376,7 @@
     }
     function MainApp() {
       const { user, logout } = useAuth();
+      const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
       const getInitialPage = () => {
         try {
@@ -373,6 +397,7 @@
 
       const setPageAndUrl = (next) => {
         setPage(next);
+        setSidebarOpen(false); // auto-close sidebar on mobile
         try {
           const url = new URL(window.location.href);
           url.searchParams.set("page", next);
@@ -473,100 +498,89 @@
         return <CreateOrderPage />;
       };
 
+      // Sidebar menu items (reusable)
+      const NavButton = ({ targetPage, icon, label }) => (
+        <button
+          onClick={() => setPageAndUrl(targetPage)}
+          className={`w-full p-3 text-left rounded-xl mb-1 transition-colors flex items-center gap-3 text-sm ${
+            page === targetPage
+              ? "bg-indigo-100 text-indigo-700 font-semibold"
+              : "hover:bg-blue-50 text-slate-700"
+          }`}
+        >
+          <span className="text-lg">{icon}</span> {label}
+        </button>
+      );
+
+      const sidebarContent = (
+        <>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-blue-600">
+              Quản lý Quán
+            </h2>
+            {/* Close button cho mobile */}
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500"
+            >
+              ✕
+            </button>
+          </div>
+
+          <nav className="flex-1 overflow-auto">
+            {user.role === "admin" && (
+              <NavButton targetPage="dashboard" icon="📊" label="Dashboard" />
+            )}
+            <NavButton targetPage="create-order" icon="➕" label="Soạn đơn hàng" />
+            <NavButton targetPage="order-management" icon="📋" label="Quản lý Order" />
+            <NavButton targetPage="staff" icon="👩‍💼" label="Nhân viên" />
+            <NavButton targetPage="product" icon="🛒" label="Hàng hoá" />
+            <NavButton targetPage="room" icon="🏠" label="Phòng" />
+            <NavButton targetPage="customer" icon="👥" label="Khách hàng" />
+          </nav>
+
+          <div className="mt-auto pt-4 border-t border-slate-100">
+            <p className="text-xs text-gray-500 mb-3">
+              Logged as: <span className="font-semibold">{user.name}</span>
+            </p>
+            <button
+              onClick={logout}
+              className="w-full bg-red-500 text-white p-2.5 rounded-xl hover:bg-red-600 transition-colors text-sm font-medium"
+            >
+              Đăng xuất
+            </button>
+          </div>
+        </>
+      );
+
       return (
         <div className="flex h-screen bg-blue-50">
-          {/* Sidebar */}
-          <div className="w-64 bg-white shadow-lg p-4 flex flex-col">
-            <h2 className="text-xl font-bold text-blue-600 mb-6">
-              Quản lý kho
-            </h2>
+          {/* Mobile overlay */}
+          <div
+            className={`sidebar-overlay md:hidden ${sidebarOpen ? 'active' : ''}`}
+            onClick={() => setSidebarOpen(false)}
+          />
 
-            {user.role === "admin" && (
-              <button
-                onClick={() => setPageAndUrl("dashboard")}
-                className={`p-2 text-left rounded mb-2 transition-colors ${page === "dashboard"
-                    ? "bg-indigo-100 text-indigo-700 font-semibold"
-                    : "hover:bg-blue-100"
-                  }`}
-              >
-                📊 Dashboard
-              </button>
-            )}
-
-            <button
-              onClick={() => setPageAndUrl("create-order")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "create-order"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              ➕ Soạn đơn hàng
-            </button>
-
-            <button
-              onClick={() => setPageAndUrl("order-management")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "order-management"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              📋 Quản lý Order
-            </button>
-
-            <button
-              onClick={() => setPageAndUrl("staff")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "staff"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              👩‍💼 Nhân viên
-            </button>
-
-            <button
-              onClick={() => setPageAndUrl("product")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "product"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              🛒 Hàng hoá
-            </button>
-            <button
-              onClick={() => setPageAndUrl("room")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "room"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              🏠 Phòng
-            </button>
-
-            <button
-              onClick={() => setPageAndUrl("customer")}
-              className={`p-2 text-left rounded mb-2 transition-colors ${page === "customer"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "hover:bg-blue-100"
-                }`}
-            >
-              👥 Khách hàng
-            </button>
-
-            <div className="mt-auto">
-              <p className="text-xs text-gray-500 mb-3">
-                Logged as: <span className="font-semibold">{user.name}</span>
-              </p>
-              <button
-                onClick={logout}
-                className="w-full bg-red-500 text-white p-2 rounded mt-4 hover:bg-red-600 transition-colors"
-              >
-                Đăng xuất
-              </button>
-            </div>
+          {/* Sidebar - desktop: static, mobile: slide-in */}
+          <div className={`mobile-sidebar md:relative md:translate-x-0 md:transition-none w-64 bg-white shadow-lg p-4 flex flex-col ${sidebarOpen ? 'open' : ''}`}>
+            {sidebarContent}
           </div>
 
           {/* Content */}
-          <div className="flex-1 p-6 overflow-auto">{renderPage()}</div>
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            {/* Mobile header with hamburger */}
+            <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                <span className="material-icons-round text-slate-700">menu</span>
+              </button>
+              <h1 className="text-lg font-bold text-slate-800 truncate">Quản lý Quán</h1>
+            </div>
+
+            <div className="flex-1 p-3 md:p-6 overflow-auto">{renderPage()}</div>
+          </div>
         </div>
       );
     }

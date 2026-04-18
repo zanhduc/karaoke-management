@@ -435,20 +435,20 @@
             const Icon = window.Icon;
 
             return (
-                <div className="max-w-4xl mx-auto p-4">
-                    <div className="bg-white rounded-3xl shadow-xl overflow-hidden">
+                <div className="max-w-4xl mx-auto p-2 md:p-4">
+                    <div className="bg-white rounded-2xl md:rounded-3xl shadow-xl overflow-hidden">
 
                         {/* Header */}
-                        <div className="px-6 py-6 border-b bg-slate-50 flex items-center justify-between">
+                        <div className="px-4 md:px-6 py-4 md:py-6 border-b bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <div>
-                                <h1 className="text-2xl font-bold text-slate-800">Quản lý phòng karaoke</h1>
-                                <p className="text-slate-500">Kiểm soát tình trạng và thời gian sử dụng phòng</p>
+                                <h1 className="text-xl md:text-2xl font-bold text-slate-800">Quản lý phòng karaoke</h1>
+                                <p className="text-sm md:text-base text-slate-500">Kiểm soát tình trạng và thời gian sử dụng phòng</p>
                             </div>
-                            <div className="flex gap-3">
-                                <button onClick={load} className="px-4 py-2.5 rounded-2xl border border-slate-200 hover:bg-white flex items-center gap-2">
+                            <div className="flex gap-2 md:gap-3">
+                                <button onClick={load} className="px-3 md:px-4 py-2 md:py-2.5 rounded-2xl border border-slate-200 hover:bg-white flex items-center gap-2 text-sm">
                                     <Icon name="refresh" /> Tải lại
                                 </button>
-                                <button onClick={openAddModal} className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl flex items-center gap-2">
+                                <button onClick={openAddModal} className="px-4 md:px-6 py-2 md:py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl flex items-center gap-2 text-sm">
                                     + Thêm phòng
                                 </button>
                             </div>
@@ -458,10 +458,10 @@
                         {success && <div className="mx-6 mt-4 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-2xl">{success}</div>}
 
                         {/* Filter */}
-                        <div className="p-6 border-b flex flex-col md:flex-row gap-4 bg-white">
+                        <div className="p-4 md:p-6 border-b flex flex-col md:flex-row gap-3 md:gap-4 bg-white">
                             <div className="flex-1">
                                 <label className="block text-xs font-medium text-slate-500 mb-1">Trạng thái</label>
-                                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
+                                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-3 md:px-4 py-2.5 md:py-3 bg-white text-sm">
                                     <option value="all">Tất cả trạng thái</option>
                                     <option value="available">🟢 Trống</option>
                                     <option value="occupied">🔴 Đang dùng</option>
@@ -470,7 +470,7 @@
                             </div>
                             <div className="flex-1">
                                 <label className="block text-xs font-medium text-slate-500 mb-1">Loại phòng</label>
-                                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
+                                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-3 md:px-4 py-2.5 md:py-3 bg-white text-sm">
                                     <option value="all">Tất cả loại</option>
                                     <option value="VIP">VIP</option>
                                     <option value="thường">Thường</option>
@@ -479,7 +479,7 @@
                         </div>
 
                         {/* Danh sách phòng */}
-                        <div className="p-6">
+                        <div className="p-3 md:p-6">
                             {isLoading ? (
                                 <div className="text-center py-12 text-slate-500">Đang tải danh sách phòng...</div>
                             ) : filteredRooms.length === 0 ? (
@@ -505,28 +505,28 @@
                                         }
 
                                         return (
-                                            <div key={String(r.id)} className="bg-white border border-slate-200 hover:border-slate-300 rounded-3xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                            <div key={String(r.id)} className="bg-white border border-slate-200 hover:border-slate-300 rounded-2xl md:rounded-3xl p-4 md:p-5 flex flex-col gap-3">
                                                 <div className="flex-1">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="font-semibold text-xl text-slate-800">{r.name}</div>
+                                                    <div className="flex flex-wrap items-center gap-2 md:gap-3">
+                                                        <div className="font-semibold text-lg md:text-xl text-slate-800">{r.name}</div>
                                                         <StatusPill status={r.status} startTime={r.start_time} />
                                                         {r.status === "occupied" && r.start_time && (
-                                                            <div className="ml-3 text-xs font-medium text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">
+                                                            <div className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 md:px-3 py-1 rounded-full">
                                                                 <ElapsedTimer startTime={r.start_time} small={true} />
                                                             </div>
                                                         )}
                                                     </div>
-                                                    <div className="mt-2 text-sm text-slate-500">
+                                                    <div className="mt-1.5 md:mt-2 text-xs md:text-sm text-slate-500">
                                                         {r.type} • {Number(r.price_per_hour).toLocaleString('vi-VN')}đ/giờ
-                                                        {r.current_order_id && <span className="ml-3 text-amber-600">• Order: {r.current_order_id}</span>}
+                                                        {r.current_order_id && <span className="ml-2 md:ml-3 text-amber-600">• Order: {r.current_order_id}</span>}
                                                     </div>
                                                 </div>
 
-                                                <div className="flex gap-2">
+                                                <div className="flex flex-wrap gap-2">
                                                     {r.status === "occupied" && (
                                                         <button
                                                             onClick={() => openRoomDetail(r)}
-                                                            className="px-5 py-2 text-sm font-medium bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-2xl"
+                                                            className="px-3 md:px-5 py-2 text-xs md:text-sm font-medium bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl md:rounded-2xl"
                                                         >
                                                             📋 Chi tiết
                                                         </button>
@@ -534,7 +534,7 @@
                                                     {canChangeStatus && (
                                                         <button
                                                             onClick={() => changeStatus(r)}
-                                                            className="px-5 py-2 text-sm font-medium border border-slate-300 hover:bg-slate-50 rounded-2xl"
+                                                            className="px-3 md:px-5 py-2 text-xs md:text-sm font-medium border border-slate-300 hover:bg-slate-50 rounded-xl md:rounded-2xl"
                                                         >
                                                             Đổi trạng thái
                                                         </button>
@@ -542,14 +542,14 @@
                                                     {canEdit && (
                                                         <button
                                                             onClick={() => openEditModal(r)}
-                                                            className="px-5 py-2 text-sm font-medium border border-indigo-200 hover:border-indigo-400 hover:text-indigo-600 rounded-2xl"
+                                                            className="px-3 md:px-5 py-2 text-xs md:text-sm font-medium border border-indigo-200 hover:border-indigo-400 hover:text-indigo-600 rounded-xl md:rounded-2xl"
                                                         >
                                                             Sửa
                                                         </button>
                                                     )}
                                                     <button
                                                         onClick={() => confirmDelete(r.id)}
-                                                        className="px-5 py-2 text-sm font-medium bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl"
+                                                        className="px-3 md:px-5 py-2 text-xs md:text-sm font-medium bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl md:rounded-2xl"
                                                     >
                                                         Xoá
                                                     </button>
