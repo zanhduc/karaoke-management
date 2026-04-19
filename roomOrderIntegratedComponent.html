@@ -1163,8 +1163,8 @@
 
             // ──── Completed Orders Table Logic ────
             const completedOrders = useMemo(() => {
-                // Hiển thị tất cả orders có orderCode (các orders hợp lệ)
-                return orders.filter(o => o && o.orderCode);
+                // Chỉ hiển thị đơn Đã thanh toán
+                return orders.filter(o => o && o.orderCode && o.paymentStatus === "Đã thanh toán");
             }, [orders]);
 
             const filteredCompletedOrders = useMemo(() => {
@@ -2872,37 +2872,37 @@ ${change > 0 ? "" : ""}
 
                                 {/* Body */}
                                 <div className="flex-1 overflow-auto">
-                                    {/* Thoi gian */}
+                                    {/* Thời gian */}
                                     <div className="grid grid-cols-2 gap-px bg-slate-100">
                                         <div className="bg-white px-5 py-3">
-                                            <div className="text-xs text-slate-400 mb-0.5">Bat dau</div>
-                                            <div className="text-sm font-semibold text-slate-800">{selectedOrder?.startTime ? new Date(selectedOrder.startTime).toLocaleString("vi-VN") : "â€”"}</div>
+                                            <div className="text-xs text-slate-400 mb-0.5">Bắt đầu</div>
+                                            <div className="text-sm font-semibold text-slate-800">{selectedOrder?.startTime ? new Date(selectedOrder.startTime).toLocaleString('vi-VN') : '—'}</div>
                                         </div>
                                         <div className="bg-white px-5 py-3">
-                                            <div className="text-xs text-slate-400 mb-0.5">Ket thuc</div>
-                                            <div className="text-sm font-semibold text-slate-800">{selectedOrder?.endTime ? new Date(selectedOrder.endTime).toLocaleString("vi-VN") : "â€”"}</div>
+                                            <div className="text-xs text-slate-400 mb-0.5">Kết thúc</div>
+                                            <div className="text-sm font-semibold text-slate-800">{selectedOrder?.endTime ? new Date(selectedOrder.endTime).toLocaleString('vi-VN') : '—'}</div>
                                         </div>
                                     </div>
 
-                                    {/* Hang hoa */}
+                                    {/* Hàng hoá */}
                                     {tempProducts.length > 0 && (
                                         <div className="px-5 py-4 border-b">
-                                            <div className="text-sm font-semibold text-slate-600 mb-2">ðŸ›’ Hang hoa</div>
+                                            <div className="text-sm font-semibold text-slate-600 mb-2">🛒 Hàng hoá</div>
                                             <div className="space-y-1.5">
                                                 {tempProducts.map(item => (
                                                     <div key={item.id} className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2">
                                                         <div>
                                                             <span className="font-medium text-slate-800 text-sm">{item.name}</span>
-                                                            <span className="text-slate-400 text-xs ml-2">Ã— {item.quantity}</span>
+                                                            <span className="text-slate-400 text-xs ml-2">× {item.quantity}</span>
                                                         </div>
-                                                        <span className="text-sm font-semibold text-slate-700">{(Number(item.price) * (item.quantity || 1)).toLocaleString()}d</span>
+                                                        <span className="text-sm font-semibold text-slate-700">{(Number(item.price) * (item.quantity || 1)).toLocaleString()}đ</span>
                                                     </div>
                                                 ))}
                                             </div>
                                         </div>
                                     )}
 
-                                    {/* Tiep vien + sessions */}
+                                    {/* Tiếp viên + sessions (tính tiền riêng từng đợt) */}
                                     {tempStaffs.length > 0 && (() => {
                                         const getSessionsData = (s) => {
                                             const sessions = s.sessions || [];
@@ -2912,33 +2912,33 @@ ${change > 0 ? "" : ""}
                                                 const endT = s.endTime || fallbackEnd;
                                                 const durationMs = Math.max(0, new Date(endT) - new Date(s.startTime));
                                                 const money = Math.round(ppm * (durationMs / 60000) / 1000) * 1000;
-                                                const startStr = new Date(s.startTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-                                                const endStr = new Date(endT).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-                                                return [{ display: startStr + " - " + endStr, money }];
+                                                const startStr = new Date(s.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                                                const endStr = new Date(endT).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                                                return [{ display: startStr + ' - ' + endStr, money }];
                                             }
                                             return sessions.map(ss => {
                                                 if (!ss?.startTime) return null;
                                                 const endT = ss.endTime || fallbackEnd;
                                                 const durationMs = Math.max(0, new Date(endT) - new Date(ss.startTime));
                                                 const money = Math.round(ppm * (durationMs / 60000) / 1000) * 1000;
-                                                const startStr = new Date(ss.startTime).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-                                                const endStr = new Date(endT).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-                                                return { display: startStr + " - " + endStr, money };
+                                                const startStr = new Date(ss.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                                                const endStr = new Date(endT).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                                                return { display: startStr + ' - ' + endStr, money };
                                             }).filter(Boolean);
                                         };
                                         return (
                                             <div className="px-5 py-4 border-b">
-                                                <div className="text-sm font-semibold text-slate-600 mb-2">ðŸ‘¥ Tiep vien</div>
+                                                <div className="text-sm font-semibold text-slate-600 mb-2">👥 Tiếp viên</div>
                                                 <div className="space-y-1.5">
                                                     {tempStaffs.map(s => {
                                                         const sData = getSessionsData(s);
                                                         return sData.map((sd, idx) => (
-                                                            <div key={s.id + "-" + idx} className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2">
+                                                            <div key={s.id + '-' + idx} className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2">
                                                                 <div>
                                                                     <div className="font-medium text-slate-800 text-sm">{s.name}</div>
                                                                     <div className="text-xs text-slate-400 font-mono">{sd.display}</div>
                                                                 </div>
-                                                                <span className="text-sm font-semibold text-slate-700">{sd.money.toLocaleString()}d</span>
+                                                                <span className="text-sm font-semibold text-slate-700">{sd.money.toLocaleString()}đ</span>
                                                             </div>
                                                         ));
                                                     })}
@@ -2947,41 +2947,41 @@ ${change > 0 ? "" : ""}
                                         );
                                     })()}
 
-                                    {/* Tong ket */}
+                                    {/* Tổng kết */}
                                     <div className="px-5 py-4 bg-slate-50 border-b space-y-2">
                                         <div className="flex justify-between text-sm text-slate-600">
-                                            <span>ðŸ  Tien phong ({selectedOrder?.duration || "â€”"}h)</span>
-                                            <span className="font-semibold">{(selectedOrder?.roomTotal || calcForCompleted.roomTotal || 0).toLocaleString()}d</span>
+                                            <span>🏠 Tiền phòng ({selectedOrder?.duration || '—'}h)</span>
+                                            <span className="font-semibold">{(selectedOrder?.roomTotal || calcForCompleted.roomTotal || 0).toLocaleString()}đ</span>
                                         </div>
                                         <div className="flex justify-between text-sm text-slate-600">
-                                            <span>ðŸ›’ Tong hang hoa</span>
-                                            <span className="font-semibold">{calcForCompleted.prodTotal.toLocaleString()}d</span>
+                                            <span>🛒 Tổng hàng hoá</span>
+                                            <span className="font-semibold">{calcForCompleted.prodTotal.toLocaleString()}đ</span>
                                         </div>
                                         <div className="flex justify-between text-sm text-slate-600">
-                                            <span>ðŸ‘¥ Tong tiep vien</span>
-                                            <span className="font-semibold">{calcForCompleted.staffTotal.toLocaleString()}d</span>
+                                            <span>👥 Tổng tiếp viên</span>
+                                            <span className="font-semibold">{calcForCompleted.staffTotal.toLocaleString()}đ</span>
                                         </div>
                                         {(selectedOrder?.discountCustomer > 0) && (
                                             <div className="flex justify-between text-sm text-rose-600">
-                                                <span>ðŸŽ Giam gia</span>
-                                                <span className="font-semibold">-{Number(selectedOrder.discountCustomer).toLocaleString()}d</span>
+                                                <span>🎁 Giảm giá</span>
+                                                <span className="font-semibold">-{Number(selectedOrder.discountCustomer).toLocaleString()}đ</span>
                                             </div>
                                         )}
                                         <div className="flex justify-between text-lg font-bold border-t pt-2 mt-1">
-                                            <span>Tong thanh toan</span>
-                                            <span className="text-emerald-600">{calcForCompleted.grandTotal.toLocaleString()}d</span>
+                                            <span>Tổng thanh toán</span>
+                                            <span className="text-emerald-600">{calcForCompleted.grandTotal.toLocaleString()}đ</span>
                                         </div>
                                     </div>
 
-                                    {/* Phuong thuc thanh toan */}
+                                    {/* Phương thức thanh toán */}
                                     <div className="px-5 py-4 grid grid-cols-2 gap-3">
                                         <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
-                                            <div className="text-xs text-blue-400 mb-1">ðŸ’³ Chuyen khoan</div>
-                                            <div className="font-bold text-blue-700">{Number(selectedOrder?.bankPayment || 0).toLocaleString()}d</div>
+                                            <div className="text-xs text-blue-400 mb-1">💳 Chuyển khoản</div>
+                                            <div className="font-bold text-blue-700">{Number(selectedOrder?.bankPayment || 0).toLocaleString()}đ</div>
                                         </div>
                                         <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3">
-                                            <div className="text-xs text-emerald-400 mb-1">ðŸ’µ Tien mat</div>
-                                            <div className="font-bold text-emerald-700">{Number(selectedOrder?.cashPayment || 0).toLocaleString()}d</div>
+                                            <div className="text-xs text-emerald-400 mb-1">💵 Tiền mặt</div>
+                                            <div className="font-bold text-emerald-700">{Number(selectedOrder?.cashPayment || 0).toLocaleString()}đ</div>
                                         </div>
                                     </div>
                                 </div>
@@ -2990,58 +2990,75 @@ ${change > 0 ? "" : ""}
                                 <div className="border-t p-4 flex flex-wrap gap-3 bg-slate-50">
                                     <button
                                         onClick={async () => {
-                                            if (!window.confirm("Day order " + selectedOrder.orderCode + " ve lai phong?")) return;
+                                            if (!window.confirm(`Đẩy order ${selectedOrder.orderCode} về lại phòng? Trạng thái sẽ trở về "Chưa thanh toán".`)) return;
                                             try {
+                                                const targetRoom = rooms.find(r => String(r.id) === String(selectedOrder.roomId));
+                                                if (targetRoom && targetRoom.status === 'occupied' && targetRoom.current_order_id && String(targetRoom.current_order_id) !== String(selectedOrder.orderCode)) {
+                                                    window.alert(`Phòng này đang bận bởi order khác (${targetRoom.current_order_id})! Không thể đẩy phòng.`);
+                                                    return;
+                                                }
                                                 const reopenedOrder = {
                                                     ...selectedOrder,
-                                                    paymentStatus: "Chua thanh toan",
-                                                    endTime: new Date(Date.now() + 2 * 3600000).toISOString(),
+                                                    paymentStatus: 'Chưa thanh toán',
+                                                    endTime: "",
+                                                    duration: "",
+                                                    roomTotal: 0,
                                                 };
                                                 if (!RoomServer.isLocal) {
                                                     await new Promise((res, rej) =>
                                                         google.script.run
                                                             .withSuccessHandler(res)
                                                             .withFailureHandler(rej)
-                                                            .updateOrderWithStaffSync(selectedOrder.orderCode, reopenedOrder)
+                                                            .reopenOrderAndRoom(selectedOrder.orderCode)
                                                     );
                                                 }
                                                 const updatedOrders = orders.map(o => o.orderCode === selectedOrder.orderCode ? reopenedOrder : o);
                                                 const updatedRooms = rooms.map(r =>
-                                                    String(r.current_order_id) === String(selectedOrder.orderCode)
-                                                        ? { ...r, status: "occupied" } : r
+                                                    String(r.id) === String(selectedOrder.roomId)
+                                                        ? { ...r, status: 'occupied', current_order_id: selectedOrder.orderCode, start_time: selectedOrder.startTime } : r
                                                 );
+                                                
+                                                let updatedStaffs = [...staffs];
+                                                try {
+                                                    const orderStaffs = JSON.parse(selectedOrder.staffs || "[]");
+                                                    orderStaffs.forEach(os => {
+                                                        updatedStaffs = updatedStaffs.map(s => String(s.id) === String(os.id) ? { ...s, status: 'busy', current_roomId: selectedOrder.roomId } : s);
+                                                    });
+                                                } catch(e) { console.error(e) }
+                                                
                                                 setOrders(updatedOrders);
                                                 setRooms(updatedRooms);
-                                                saveUnifiedCache({ rooms: updatedRooms, orders: updatedOrders, products, staffs, customers });
-                                                setSuccess("Da mo lai phong thanh cong!");
-                                                setTimeout(() => setSuccess(""), 3000);
+                                                setStaffs(updatedStaffs);
+                                                saveUnifiedCache({ rooms: updatedRooms, orders: updatedOrders, products, staffs: updatedStaffs, customers });
+                                                setSuccess('Đã mở lại phòng thành công!');
+                                                setTimeout(() => setSuccess(''), 3000);
                                                 closeOrderCompletedModal();
                                             } catch (e) {
-                                                setError("Mo lai phong that bai: " + (e.message || e));
+                                                setError('Mở lại phòng thất bại: ' + (e.message || e));
                                             }
                                         }}
                                         className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-2xl transition-colors text-sm"
                                     >
-                                        â†© Day ve phong
+                                        ↩ Đẩy về phòng
                                     </button>
                                     <button
                                         onClick={() => printInvoice(selectedOrder, calcForCompleted)}
                                         className="flex-1 py-3 border border-slate-300 hover:bg-slate-100 font-medium rounded-2xl text-sm"
                                     >
-                                        ðŸ–¨ï¸ In hoa don
+                                        🖨️ In hoá đơn
                                     </button>
                                     <button
                                         onClick={deleteOrderFromCompleted}
                                         className="py-3 px-5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl transition-colors text-sm"
                                     >
-                                        ðŸ—‘ Xoa
+                                        🗑 Xoá
                                     </button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Notification Popup */}{/* Notification Popup */}
+                                        {/* Notification Popup */}{/* Notification Popup */}
                     {notification && (
                         <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-right-4 duration-300">
                             <div className={`rounded-3xl shadow-2xl p-6 max-w-md text-white flex items-start gap-4 ${notification.type === "warning" ? "bg-amber-500" : "bg-emerald-500"}`}>

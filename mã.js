@@ -2185,3 +2185,79 @@ function doGet(e) {
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
+
+
+/**
+ * Mở lại Order đã thanh toán và gán lại Phòng / Tiếp viên
+ * @param {string} orderCode Mã hoá đơn cần mở lại
+ */
+function reopenOrderAndRoom(orderCode) {
+  if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
+  try {
+    var orderSheet = getOrderSheet();
+    var orderData = orderSheet.getDataRange().getValues();
+    var foundOrder = false;
+    var roomId = null;
+    var startTime = null;
+    var staffsString = null;
+    
+    // 1. Phục hồi trạng thái Order
+    for (var i = 1; i < orderData.length; i++) {
+        if (String(orderData[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+            orderSheet.getRange(i + 1, ORDER_COL.PAYMENT_STATUS).setValue("Chưa thanh toán");
+            orderSheet.getRange(i + 1, ORDER_COL.END_TIME).clearContent();
+            orderSheet.getRange(i + 1, ORDER_COL.DURATION).clearContent();
+            
+            roomId = orderData[i][ORDER_COL.ROOM_ID - 1];
+            startTime = orderData[i][ORDER_COL.START_TIME - 1];
+            staffsString = orderData[i][ORDER_COL.STAFFS - 1];
+            foundOrder = true;
+            break;
+        }
+    }
+
+    if (!foundOrder) throw new Error("Không tìm thấy hoá đơn để mở lại: " + orderCode);
+
+    // 2. Phục hồi trạng thái Phòng
+    if (roomId) {
+        var roomSheet = getRoomSheet();
+        var roomData = roomSheet.getDataRange().getValues();
+        for (var j = 1; j < roomData.length; j++) {
+            if (String(roomData[j][ROOM_COL.ID - 1]) === String(roomId)) {
+                // Kiểm tra MỘT ORDER KHÁC
+                var currentStatus = roomData[j][ROOM_COL.STATUS - 1];
+                var currentOrderId = roomData[j][ROOM_COL.CURRENT_ORDER_ID - 1];
+                
+                if (currentStatus === "occupied" && currentOrderId && currentOrderId !== orderCode) {
+                    throw new Error("Phòng đang bận bởi order khác (" + currentOrderId + ")! Không thể đẩy lại.");
+                }
+                
+                roomSheet.getRange(j + 1, ROOM_COL.STATUS).setValue("occupied");
+                roomSheet.getRange(j + 1, ROOM_COL.CURRENT_ORDER_ID).setValue(orderCode);
+                roomSheet.getRange(j + 1, ROOM_COL.START_TIME).setValue(startTime);
+                break;
+            }
+        }
+    }
+    
+    // 3. Phục hồi trạng thái Tiếp viên
+    if (staffsString) {
+        var staffs = parseJsonArraySafe(staffsString);
+        for (var k = 0; k < staffs.length; k++) {
+            if (staffs[k].id) {
+                try {
+                    assignStaffToRoom(staffs[k].id, roomId);
+                } catch(err) {
+                    auditLog("Gán lại tiếp viên " + staffs[k].id + " thất bại", "FAIL", err.message || err);
+                }
+            }
+        }
+    }
+
+    auditLog("Mở lại hoá đơn " + orderCode + " để đổi trả", "SUCCESS", "");
+    return { success: true, message: "Đã mở lại phòng và hoá đơn thành công" };
+  } catch(e) {
+    auditLog("Mở lại hoá đơn " + orderCode, "FAIL", e.message || e);
+    throw e;
+  }
+}
