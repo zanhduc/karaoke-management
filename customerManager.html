@@ -105,21 +105,24 @@
             };
 
             const load = async () => {
-                setIsLoading(true);
                 setError("");
                 const cached = readCustomerCache();
                 if (cached?.data) {
+                    // \u2705 Hi\u1ec7n ngay t\u1eeb cache, kh\u00f4ng ch\u01edd server
                     setCustomers(cached.data);
                     setIsLoading(false);
+                } else {
+                    setIsLoading(true);
                 }
                 try {
+                    // Fetch server ng\u1ea7m
                     const data = await CustomerServer.getCustomers();
                     const normalized = Array.isArray(data) ? data : [];
                     setCustomers(normalized);
                     saveCustomerCache(normalized);
                 } catch (e) {
                     if (!cached?.data) {
-                        setError("Không tải được khách hàng.");
+                        setError("Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c kh\u00e1ch h\u00e0ng.");
                     }
                 } finally {
                     setIsLoading(false);

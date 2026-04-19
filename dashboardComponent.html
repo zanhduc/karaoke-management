@@ -57,9 +57,52 @@
       const [isLoading, setIsLoading] = useState(true);
       const [error, setError] = useState("");
 
+      const DASH_CACHE_KEY = "karaoke_dashboard_cache_v1";
+      const DASH_CACHE_TTL_MS = 2 * 60 * 1000; // 2 phút
+
+      const saveDashCache = (data) => {
+        try {
+          localStorage.setItem(
+            DASH_CACHE_KEY,
+            JSON.stringify({
+              ts: Date.now(),
+              data,
+            })
+          );
+        } catch (e) { }
+      };
+
+      const readDashCache = () => {
+        try {
+          const raw = localStorage.getItem(DASH_CACHE_KEY);
+          if (!raw) return null;
+
+          const parsed = JSON.parse(raw);
+          if (!parsed || !parsed.ts || !parsed.data) return null;
+
+          return {
+            data: parsed.data,
+            isExpired: Date.now() - parsed.ts > DASH_CACHE_TTL_MS,
+          };
+        } catch (e) {
+          return null;
+        }
+      };
+
       const loadData = async () => {
-        setIsLoading(true);
         setError("");
+
+        const cached = readDashCache();
+
+        if (cached?.data) {
+          // ⚡ Hiện UI ngay từ cache
+          setRoomStats(cached.data.rooms || {});
+          setStaffStats(cached.data.staff || {});
+          setIsLoading(false);
+        } else {
+          setIsLoading(true);
+        }
+
         try {
           const [rooms, staff] = await Promise.all([
             DashboardServer.getRoomStatistics(),
@@ -68,9 +111,13 @@
 
           setRoomStats(rooms || {});
           setStaffStats(staff || {});
+
+          // 💾 update cache
+          saveDashCache({ rooms, staff });
         } catch (e) {
-          setError("Không tải được dữ liệu dashboard");
-          console.error(e);
+          if (!cached?.data) {
+            setError("Không tải được dữ liệu dashboard");
+          }
         } finally {
           setIsLoading(false);
         }
@@ -80,7 +127,7 @@
         loadData();
       }, []);
 
-      if (isLoading) {
+      if (isLoading && !roomStats && !staffStats) {
         return (
           <div className="flex items-center justify-center h-screen bg-slate-50">
             <div className="text-center">
@@ -92,222 +139,222 @@
       }
 
       return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 md:p-6">
-          <div className="max-w-7xl mx-auto">
-            {/* Header */}
-            <div className="mb-6 md:mb-8">
-              <h1 className="text-2xl md:text-4xl font-bold text-slate-900 mb-1 md:mb-2">📊 Dashboard Quản Lý</h1>
-              <p className="text-sm md:text-base text-slate-600">Thống kê phòng, tiếp viên và hoạt động</p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 md:p-6">
+        <div className="max-w-7xl mx-auto">
+          {/* Header */}
+          <div className="mb-6 md:mb-8">
+            <h1 className="text-2xl md:text-4xl font-bold text-slate-900 mb-1 md:mb-2">📊 Dashboard Quản Lý</h1>
+            <p className="text-sm md:text-base text-slate-600">Thống kê phòng, tiếp viên và hoạt động</p>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-red-700">
+              {error}
+            </div>
+          )}
+
+          {/* Room Statistics */}
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">🏨 Thống Kê Phòng</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+              {/* Total Rooms */}
+              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-blue-500">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-slate-600 text-xs md:text-sm font-medium">Tổng Phòng</p>
+                    <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-1 md:mt-2">
+                      {roomStats?.total || 0}
+                    </p>
+                  </div>
+                  <div className="text-2xl md:text-4xl">🏠</div>
+                </div>
+              </div>
+
+              {/* Available Rooms */}
+              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-emerald-500">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-slate-600 text-xs md:text-sm font-medium">Phòng Trống</p>
+                    <p className="text-2xl md:text-3xl font-bold text-emerald-600 mt-1 md:mt-2">
+                      {roomStats?.available || 0}
+                    </p>
+                  </div>
+                  <div className="text-2xl md:text-4xl">✅</div>
+                </div>
+              </div>
+
+              {/* Occupied Rooms */}
+              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-rose-500">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Hoạt Động</p>
+                    <p className="text-2xl md:text-3xl font-bold text-rose-600 mt-1 md:mt-2">
+                      {roomStats?.occupied || 0}
+                    </p>
+                  </div>
+                  <div className="text-2xl md:text-4xl">🎤</div>
+                </div>
+              </div>
+
+              {/* Cleaning Rooms */}
+              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-amber-500">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Dọn</p>
+                    <p className="text-2xl md:text-3xl font-bold text-amber-600 mt-1 md:mt-2">
+                      {roomStats?.cleaning || 0}
+                    </p>
+                  </div>
+                  <div className="text-2xl md:text-4xl">🧹</div>
+                </div>
+              </div>
             </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-red-700">
-                {error}
+            {/* Room Progress Bar */}
+            {roomStats && roomStats.total > 0 && (
+              <div className="mt-6 bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">Tỉ Lệ Sử Dụng Phòng</h3>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-slate-700">Phòng Trống</span>
+                      <span className="text-sm font-bold text-emerald-600">
+                        {roomStats.available} / {roomStats.total} ({Math.round((roomStats.available / roomStats.total) * 100)}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      <div
+                        className="bg-emerald-500 h-3 rounded-full"
+                        style={{ width: `${(roomStats.available / roomStats.total) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-slate-700">Đang Hoạt Động</span>
+                      <span className="text-sm font-bold text-rose-600">
+                        {roomStats.occupied} / {roomStats.total} ({Math.round((roomStats.occupied / roomStats.total) * 100)}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      <div
+                        className="bg-rose-500 h-3 rounded-full"
+                        style={{ width: `${(roomStats.occupied / roomStats.total) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-slate-700">Đang Dọn</span>
+                      <span className="text-sm font-bold text-amber-600">
+                        {roomStats.cleaning} / {roomStats.total} ({Math.round((roomStats.cleaning / roomStats.total) * 100)}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      <div
+                        className="bg-amber-500 h-3 rounded-full"
+                        style={{ width: `${(roomStats.cleaning / roomStats.total) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
+          </div>
 
-            {/* Room Statistics */}
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 mb-4">🏨 Thống Kê Phòng</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                {/* Total Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-blue-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-600 text-xs md:text-sm font-medium">Tổng Phòng</p>
-                      <p className="text-2xl md:text-3xl font-bold text-slate-900 mt-1 md:mt-2">
-                        {roomStats?.total || 0}
-                      </p>
-                    </div>
-                    <div className="text-2xl md:text-4xl">🏠</div>
+          {/* Staff Statistics */}
+          <div>
+            <h2 className="text-xl md:text-2xl font-bold text-slate-900 mb-4">👥 Thống Kê Tiếp Viên</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+              {/* Total Staff */}
+              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-indigo-500">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-slate-600 text-xs md:text-sm font-medium">Tổng Tiếp Viên</p>
+                    <p className="text-3xl md:text-4xl font-bold text-slate-900 mt-1 md:mt-2">
+                      {staffStats?.total || 0}
+                    </p>
                   </div>
-                </div>
-
-                {/* Available Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-emerald-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-600 text-xs md:text-sm font-medium">Phòng Trống</p>
-                      <p className="text-2xl md:text-3xl font-bold text-emerald-600 mt-1 md:mt-2">
-                        {roomStats?.available || 0}
-                      </p>
-                    </div>
-                    <div className="text-2xl md:text-4xl">✅</div>
-                  </div>
-                </div>
-
-                {/* Occupied Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-rose-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Hoạt Động</p>
-                      <p className="text-2xl md:text-3xl font-bold text-rose-600 mt-1 md:mt-2">
-                        {roomStats?.occupied || 0}
-                      </p>
-                    </div>
-                    <div className="text-2xl md:text-4xl">🎤</div>
-                  </div>
-                </div>
-
-                {/* Cleaning Rooms */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-amber-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Dọn</p>
-                      <p className="text-2xl md:text-3xl font-bold text-amber-600 mt-1 md:mt-2">
-                        {roomStats?.cleaning || 0}
-                      </p>
-                    </div>
-                    <div className="text-2xl md:text-4xl">🧹</div>
-                  </div>
+                  <div className="text-3xl md:text-5xl">👥</div>
                 </div>
               </div>
 
-              {/* Room Progress Bar */}
-              {roomStats && roomStats.total > 0 && (
-                <div className="mt-6 bg-white rounded-lg shadow-md p-6">
-                  <h3 className="text-lg font-semibold text-slate-900 mb-4">Tỉ Lệ Sử Dụng Phòng</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Phòng Trống</span>
-                        <span className="text-sm font-bold text-emerald-600">
-                          {roomStats.available} / {roomStats.total} ({Math.round((roomStats.available / roomStats.total) * 100)}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-3">
-                        <div
-                          className="bg-emerald-500 h-3 rounded-full"
-                          style={{ width: `${(roomStats.available / roomStats.total) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Đang Hoạt Động</span>
-                        <span className="text-sm font-bold text-rose-600">
-                          {roomStats.occupied} / {roomStats.total} ({Math.round((roomStats.occupied / roomStats.total) * 100)}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-3">
-                        <div
-                          className="bg-rose-500 h-3 rounded-full"
-                          style={{ width: `${(roomStats.occupied / roomStats.total) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Đang Dọn</span>
-                        <span className="text-sm font-bold text-amber-600">
-                          {roomStats.cleaning} / {roomStats.total} ({Math.round((roomStats.cleaning / roomStats.total) * 100)}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-3">
-                        <div
-                          className="bg-amber-500 h-3 rounded-full"
-                          style={{ width: `${(roomStats.cleaning / roomStats.total) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
+              {/* Available Staff */}
+              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-emerald-500">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-slate-600 text-xs md:text-sm font-medium">Sẵn Sàng</p>
+                    <p className="text-3xl md:text-4xl font-bold text-emerald-600 mt-1 md:mt-2">
+                      {staffStats?.available || 0}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1 md:mt-2">
+                      {staffStats?.total > 0 && `${Math.round((staffStats.available / staffStats.total) * 100)}%`}
+                    </p>
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* Staff Statistics */}
-            <div>
-              <h2 className="text-xl md:text-2xl font-bold text-slate-900 mb-4">👥 Thống Kê Tiếp Viên</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-                {/* Total Staff */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-indigo-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-600 text-xs md:text-sm font-medium">Tổng Tiếp Viên</p>
-                      <p className="text-3xl md:text-4xl font-bold text-slate-900 mt-1 md:mt-2">
-                        {staffStats?.total || 0}
-                      </p>
-                    </div>
-                    <div className="text-3xl md:text-5xl">👥</div>
-                  </div>
-                </div>
-
-                {/* Available Staff */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-emerald-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-600 text-xs md:text-sm font-medium">Sẵn Sàng</p>
-                      <p className="text-3xl md:text-4xl font-bold text-emerald-600 mt-1 md:mt-2">
-                        {staffStats?.available || 0}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1 md:mt-2">
-                        {staffStats?.total > 0 && `${Math.round((staffStats.available / staffStats.total) * 100)}%`}
-                      </p>
-                    </div>
-                    <div className="text-3xl md:text-5xl">🟢</div>
-                  </div>
-                </div>
-
-                {/* Busy Staff */}
-                <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-rose-500">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Bận</p>
-                      <p className="text-3xl md:text-4xl font-bold text-rose-600 mt-1 md:mt-2">
-                        {staffStats?.busy || 0}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1 md:mt-2">
-                        {staffStats?.total > 0 && `${Math.round((staffStats.busy / staffStats.total) * 100)}%`}
-                      </p>
-                    </div>
-                    <div className="text-3xl md:text-5xl">🔴</div>
-                  </div>
+                  <div className="text-3xl md:text-5xl">🟢</div>
                 </div>
               </div>
 
-              {/* Staff Progress Bar */}
-              {staffStats && staffStats.total > 0 && (
-                <div className="mt-6 bg-white rounded-lg shadow-md p-6">
-                  <h3 className="text-lg font-semibold text-slate-900 mb-4">Trạng Thái Tiếp Viên</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Sẵn Sàng Làm Việc</span>
-                        <span className="text-sm font-bold text-emerald-600">
-                          {staffStats.available} / {staffStats.total} ({Math.round((staffStats.available / staffStats.total) * 100)}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-3">
-                        <div
-                          className="bg-emerald-500 h-3 rounded-full"
-                          style={{ width: `${(staffStats.available / staffStats.total) * 100}%` }}
-                        ></div>
-                      </div>
-                    </div>
+              {/* Busy Staff */}
+              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 border-l-4 border-rose-500">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-slate-600 text-xs md:text-sm font-medium">Đang Bận</p>
+                    <p className="text-3xl md:text-4xl font-bold text-rose-600 mt-1 md:mt-2">
+                      {staffStats?.busy || 0}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1 md:mt-2">
+                      {staffStats?.total > 0 && `${Math.round((staffStats.busy / staffStats.total) * 100)}%`}
+                    </p>
+                  </div>
+                  <div className="text-3xl md:text-5xl">🔴</div>
+                </div>
+              </div>
+            </div>
 
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Đang Bận Rộn</span>
-                        <span className="text-sm font-bold text-rose-600">
-                          {staffStats.busy} / {staffStats.total} ({Math.round((staffStats.busy / staffStats.total) * 100)}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-3">
-                        <div
-                          className="bg-rose-500 h-3 rounded-full"
-                          style={{ width: `${(staffStats.busy / staffStats.total) * 100}%` }}
-                        ></div>
-                      </div>
+            {/* Staff Progress Bar */}
+            {staffStats && staffStats.total > 0 && (
+              <div className="mt-6 bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">Trạng Thái Tiếp Viên</h3>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-slate-700">Sẵn Sàng Làm Việc</span>
+                      <span className="text-sm font-bold text-emerald-600">
+                        {staffStats.available} / {staffStats.total} ({Math.round((staffStats.available / staffStats.total) * 100)}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      <div
+                        className="bg-emerald-500 h-3 rounded-full"
+                        style={{ width: `${(staffStats.available / staffStats.total) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-slate-700">Đang Bận Rộn</span>
+                      <span className="text-sm font-bold text-rose-600">
+                        {staffStats.busy} / {staffStats.total} ({Math.round((staffStats.busy / staffStats.total) * 100)}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      <div
+                        className="bg-rose-500 h-3 rounded-full"
+                        style={{ width: `${(staffStats.busy / staffStats.total) * 100}%` }}
+                      ></div>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
-      );
-    };
+      </div>
+    );
+  };
   })();
 </script>

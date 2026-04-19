@@ -47,12 +47,14 @@
 
             // Load danh sách tài khoản
             const loadAccounts = () => {
-                setLoading(true);
                 setMessage({ type: '', text: '' });
                 const cached = readAccountCache();
                 if (cached?.data) {
+                    // ✅ Hiện ngay từ cache, không chờ server
                     setAccounts(cached.data);
                     setLoading(false);
+                } else {
+                    setLoading(true);
                 }
 
                 google.script.run

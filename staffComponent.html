@@ -131,21 +131,24 @@
       };
 
       const load = async () => {
-        setIsLoading(true);
         setError("");
         const cached = readStaffCache();
         if (cached?.data) {
+          // \u2705 Hi\u1ec7n ngay t\u1eeb cache, kh\u00f4ng ch\u01edd server
           setStaffs(cached.data);
           setIsLoading(false);
+        } else {
+          setIsLoading(true);
         }
         try {
+          // Fetch server ng\u1ea7m
           const data = await StaffServer.getStaffs();
           const normalized = Array.isArray(data) ? data : [];
           setStaffs(normalized);
           saveStaffCache(normalized);
         } catch (e) {
           if (!cached?.data) {
-            setError(e?.message || "Không tải được danh sách tiếp viên.");
+            setError(e?.message || "Kh\u00f4ng t\u1ea3i \u0111\u01b0\u1ee3c danh s\u00e1ch ti\u1ebfp vi\u00ean.");
           }
         } finally {
           setIsLoading(false);
