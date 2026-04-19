@@ -104,20 +104,24 @@
       };
 
       const load = async () => {
-        setIsLoading(true);
-        setError("");
         const cached = readProductCache();
-        if (cached?.data) {
+        if (cached?.data && cached.data.length > 0) {
           setProducts(cached.data);
           setIsLoading(false);
+        } else {
+          setIsLoading(true);
         }
+        setError("");
+        
         try {
           const data = await ProductServer.getProducts();
           const normalized = Array.isArray(data) ? data : [];
-          setProducts(normalized);
-          saveProductCache(normalized);
+          if (!cached?.data || JSON.stringify(cached.data) !== JSON.stringify(normalized)) {
+            setProducts(normalized);
+            saveProductCache(normalized);
+          }
         } catch (e) {
-          if (!cached?.data) {
+          if (!cached?.data || cached.data.length === 0) {
             setError(e?.message || "Không tải được danh sách hàng hoá.");
           }
         } finally {
@@ -165,24 +169,38 @@
         if (isEditing && currentProduct) {
           const prev = products;
           const updated = { ...currentProduct, ...productData };
-          setProducts(products.map(p => String(p.id) === String(currentProduct.id) ? updated : p));
+          const nextProducts = products.map(p => String(p.id) === String(currentProduct.id) ? updated : p);
+          
+          setProducts(nextProducts);
+          saveProductCache(nextProducts);
+          closeModal();
 
           try {
             await ProductServer.updateProduct({ id: currentProduct.id, ...productData });
-            saveProductCache(products.map(p => String(p.id) === String(currentProduct.id) ? updated : p));
           }
-          catch (e) { setProducts(prev); setError("Cập nhật thất bại."); }
+          catch (e) { 
+            setProducts(prev); 
+            saveProductCache(prev);
+            setError("Cập nhật thất bại. Đã khôi phục dữ liệu ban đầu."); 
+          }
         } else {
           const newProduct = { id: Date.now(), ...productData };
           const prev = products;
-          setProducts([...products, newProduct]);
+          const nextProducts = [...products, newProduct];
+          
+          setProducts(nextProducts);
+          saveProductCache(nextProducts);
+          closeModal();
+
           try {
             await ProductServer.addProduct(newProduct);
-            saveProductCache([...products, newProduct]);
           }
-          catch (e) { setProducts(prev); setError("Thêm thất bại."); }
+          catch (e) { 
+            setProducts(prev); 
+            saveProductCache(prev);
+            setError("Thêm thất bại. Đã khôi phục dữ liệu ban đầu."); 
+          }
         }
-        closeModal();
       };
 
       const confirmDelete = (id) => {
@@ -193,14 +211,21 @@
       const executeDelete = async () => {
         if (!deletingId) return;
         const prev = products;
-        setProducts(products.filter(p => String(p.id) !== String(deletingId)));
-        try {
-          await ProductServer.deleteProduct(deletingId);
-          saveProductCache(products.filter(p => String(p.id) !== String(deletingId)));
-        }
-        catch (e) { setProducts(prev); setError("Xoá thất bại."); }
+        const nextProducts = products.filter(p => String(p.id) !== String(deletingId));
+        
+        setProducts(nextProducts);
+        saveProductCache(nextProducts);
         setShowDeleteConfirm(false);
         setDeletingId(null);
+
+        try {
+          await ProductServer.deleteProduct(deletingId);
+        }
+        catch (e) { 
+          setProducts(prev);
+          saveProductCache(prev); 
+          setError("Xoá thất bại. Đã khôi phục dữ liệu ban đầu."); 
+        }
       };
 
       const cancelDelete = () => {
