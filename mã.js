@@ -1013,6 +1013,12 @@ function getProducts() {
 }
 
 function addProduct(p) {
+  return runWithLockOrQueue_("ADD_PRODUCT", { payload: p }, function() {
+    return addProductInternal_(p);
+  });
+}
+
+function addProductInternal_(p) {
   try {
     getProductSheet().appendRow([p.id, p.name, p.unit || "", p.price || 0]);
     auditLog(
@@ -1031,6 +1037,12 @@ function addProduct(p) {
 }
 
 function updateProduct(p) {
+  return runWithLockOrQueue_("UPDATE_PRODUCT", { payload: p }, function() {
+    return updateProductInternal_(p);
+  });
+}
+
+function updateProductInternal_(p) {
   try {
     var sheet = getProductSheet();
     var data = sheet.getDataRange().getValues();
@@ -1064,6 +1076,12 @@ function updateProduct(p) {
 }
 
 function deleteProduct(id) {
+  return runWithLockOrQueue_("DELETE_PRODUCT", { payload: id }, function() {
+    return deleteProductInternal_(id);
+  });
+}
+
+function deleteProductInternal_(id) {
   try {
     var sheet = getProductSheet();
     var data = sheet.getDataRange().getValues();
@@ -1084,6 +1102,84 @@ function deleteProduct(id) {
   } catch (e) {
     auditLog("Hàng hoá [DELETE]: ID " + id, "FAIL", String(e.message || e));
     throw e;
+  }
+}
+
+// ==========================================
+// CONCURRENCY GUARD (LOCK + QUEUE)
+// ==========================================
+function setupQueueInfrastructure() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("QUEUE");
+  if (!sheet) {
+    sheet = ss.insertSheet("QUEUE");
+    sheet.appendRow(["JOB_ID", "TIMESTAMP", "ACTION", "PAYLOAD_JSON", "STATUS", "RESULT_JSON"]);
+  }
+  
+  var triggers = ScriptApp.getProjectTriggers();
+  var hasTrigger = false;
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "processQueue") {
+      hasTrigger = true;
+      break;
+    }
+  }
+  if (!hasTrigger) {
+    ScriptApp.newTrigger("processQueue").timeBased().everyMinutes(1).create();
+  }
+}
+
+function processQueue() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("QUEUE");
+  if (!sheet) return;
+  var lock = LockService.getScriptLock();
+  if (lock.tryLock(5000)) {
+    try {
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (data[i][4] === "PENDING") {
+          var action = data[i][2];
+          var payloadStr = data[i][3];
+          var payload = JSON.parse(payloadStr);
+          
+          try {
+            var result = null;
+            if (action === "ADD_PRODUCT") result = addProductInternal_(payload.payload);
+            else if (action === "UPDATE_PRODUCT") result = updateProductInternal_(payload.payload);
+            else if (action === "DELETE_PRODUCT") result = deleteProductInternal_(payload.payload);
+            
+            sheet.getRange(i + 1, 5).setValue("DONE");
+            sheet.getRange(i + 1, 6).setValue(JSON.stringify(result || {}));
+          } catch(e) {
+            sheet.getRange(i + 1, 5).setValue("ERROR");
+            sheet.getRange(i + 1, 6).setValue(e.toString());
+          }
+        }
+      }
+    } finally {
+      lock.releaseLock();
+    }
+  }
+}
+
+function runWithLockOrQueue_(actionName, context, actionFn) {
+  var lock = LockService.getScriptLock();
+  if (lock.tryLock(10000)) { // Đợi tối đa 10s
+    try {
+      return actionFn();
+    } finally {
+      lock.releaseLock();
+    }
+  } else {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("QUEUE");
+    if (sheet) {
+      var jobId = Utilities.getUuid();
+      sheet.appendRow([jobId, new Date(), actionName, JSON.stringify(context), "PENDING", ""]);
+      return { queued: true, jobId: jobId };
+    }
+    throw new Error("Hệ thống đang bận và không có QUEUE sheet, vui lòng thử lại sau.");
   }
 }
 
