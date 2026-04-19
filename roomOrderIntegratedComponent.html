@@ -370,6 +370,7 @@
             const PAGE_SIZE = 12;
             const [selectedOrder, setSelectedOrder] = useState(null);
             const [showOrderCompletedModal, setShowOrderCompletedModal] = useState(false);
+            const [showReopenConfirm, setShowReopenConfirm] = useState(false);
             const [elapsedTick, setElapsedTick] = useState(0);
             const [notification, setNotification] = useState(null);
 
@@ -2989,12 +2990,53 @@ ${change > 0 ? "" : ""}
                                 {/* Footer */}
                                 <div className="border-t p-4 flex flex-wrap gap-3 bg-slate-50">
                                     <button
+                                        onClick={() => setShowReopenConfirm(true)}
+                                        className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-2xl transition-colors text-sm"
+                                    >
+                                        ↩ Đẩy về phòng
+                                    </button>
+                                    <button
+                                        onClick={() => printInvoice(selectedOrder, calcForCompleted)}
+                                        className="flex-1 py-3 border border-slate-300 hover:bg-slate-100 font-medium rounded-2xl text-sm"
+                                    >
+                                        🖨️ In hoá đơn
+                                    </button>
+                                    <button
+                                        onClick={deleteOrderFromCompleted}
+                                        className="py-3 px-5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl transition-colors text-sm"
+                                    >
+                                        🗑 Xoá
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Reopen Confirm Popup */}
+                    {showReopenConfirm && selectedOrder && (
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[70] p-4">
+                            <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl animate-in fade-in zoom-in-95 duration-200 border-2 border-amber-200">
+                                <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">
+                                    ↩
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">Đẩy về lại phòng?</h3>
+                                <p className="text-slate-500 mb-6 text-sm">
+                                    Đơn <b>{selectedOrder.orderCode}</b> sẽ bị Huỷ Thanh Toán và chuyển về lại trạng thái đang hoạt động.
+                                </p>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowReopenConfirm(false)}
+                                        className="flex-1 py-3 border border-slate-300 font-medium rounded-xl hover:bg-slate-50 text-slate-700 transition duration-200"
+                                    >
+                                        Huỷ bỏ
+                                    </button>
+                                    <button
                                         onClick={async () => {
-                                            if (!window.confirm(`Đẩy order ${selectedOrder.orderCode} về lại phòng? Trạng thái sẽ trở về "Chưa thanh toán".`)) return;
+                                            setShowReopenConfirm(false);
                                             try {
                                                 const targetRoom = rooms.find(r => String(r.id) === String(selectedOrder.roomId));
                                                 if (targetRoom && targetRoom.status === 'occupied' && targetRoom.current_order_id && String(targetRoom.current_order_id) !== String(selectedOrder.orderCode)) {
-                                                    window.alert(`Phòng này đang bận bởi order khác (${targetRoom.current_order_id})! Không thể đẩy phòng.`);
+                                                    window.alert(`Phòng này đang bận bởi khách khác (${targetRoom.current_order_id})! Không thể đẩy phòng.`);
                                                     return;
                                                 }
                                                 const reopenedOrder = {
@@ -3037,28 +3079,16 @@ ${change > 0 ? "" : ""}
                                                 setError('Mở lại phòng thất bại: ' + (e.message || e));
                                             }
                                         }}
-                                        className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-2xl transition-colors text-sm"
+                                        className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-xl shadow-lg shadow-amber-500/30 transition duration-200"
                                     >
-                                        ↩ Đẩy về phòng
-                                    </button>
-                                    <button
-                                        onClick={() => printInvoice(selectedOrder, calcForCompleted)}
-                                        className="flex-1 py-3 border border-slate-300 hover:bg-slate-100 font-medium rounded-2xl text-sm"
-                                    >
-                                        🖨️ In hoá đơn
-                                    </button>
-                                    <button
-                                        onClick={deleteOrderFromCompleted}
-                                        className="py-3 px-5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl transition-colors text-sm"
-                                    >
-                                        🗑 Xoá
+                                        Đồng ý đẩy
                                     </button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                                        {/* Notification Popup */}{/* Notification Popup */}
+                                        {/* Notification Popup */}
                     {notification && (
                         <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-right-4 duration-300">
                             <div className={`rounded-3xl shadow-2xl p-6 max-w-md text-white flex items-start gap-4 ${notification.type === "warning" ? "bg-amber-500" : "bg-emerald-500"}`}>
