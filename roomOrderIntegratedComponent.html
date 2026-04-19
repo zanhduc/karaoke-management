@@ -466,14 +466,16 @@
                         return { rooms, orders, products, staffs };
                     })();
 
-                    const data = await Promise.race([loadPromise, timeoutPromise]);
-                    applyUnifiedDataToState(data, false);
-                    saveUnifiedCache({
+                    const cacheData = {
                         rooms: Array.isArray(data.rooms) ? data.rooms : [],
                         orders: Array.isArray(data.orders) ? data.orders : [],
                         products: Array.isArray(data.products) ? data.products : [],
                         staffs: Array.isArray(data.staffs) ? data.staffs : []
-                    });
+                    };
+                    // Cập nhật Storage (Local) TRƯỚC
+                    saveUnifiedCache(cacheData);
+                    // Sau đó mới đưa lên UI
+                    applyUnifiedDataToState(cacheData, false);
                 } catch (e) {
                     if (!cached?.data) {
                         setError(e?.message || "Không tải được dữ liệu.");
@@ -492,6 +494,16 @@
                     }
                     const nextRooms = Array.isArray(data.rooms) ? data.rooms : [];
                     const nextOrders = Array.isArray(data.orders) ? data.orders : [];
+                    
+                    // 1. Lưu vào LocalStorage làm trung gian theo dạng merge
+                    const cached = loadUnifiedCache();
+                    saveUnifiedCache({
+                        ...cached?.data,
+                        rooms: nextRooms,
+                        orders: nextOrders
+                    });
+
+                    // 2. Chuyển từ LocalStorage/Backend lên UI
                     setRooms(nextRooms);
                     setOrders(nextOrders);
                 } catch (e) {
@@ -968,30 +980,23 @@
                 };
 
                 try {
-                    await new Promise((resolve, reject) => {
-                        google.script.run
-                            .withSuccessHandler(resolve)
-                            .withFailureHandler(reject)
-                            .updateOrderWithStaffSync(currentOrderDetail.orderCode, updatedOrder);
-                    });
-
-                    // Cập nhật local state ngay thay vì reload
+                    // Cập nhật local UI ngay lập tức
                     const updatedOrders = orders.map(o => o.orderCode === currentOrderDetail.orderCode ? updatedOrder : o);
                     setOrders(updatedOrders);
                     setCurrentOrderDetail(updatedOrder);
 
                     // Lưu vào cache
-                    saveUnifiedCache({
-                        rooms,
-                        orders: updatedOrders,
-                        products,
-                        staffs
-                    });
+                    saveUnifiedCache({ rooms, orders: updatedOrders, products, staffs });
 
                     setSuccess("Đã lưu thay đổi vào đơn hàng");
                     setTimeout(() => setSuccess(""), 2500);
                     clearOrderDraft(currentOrderDetail.orderCode);
-                    closeOrderDetailModal(true); // clearDraft=true: không ghi đè draft mới
+                    closeOrderDetailModal(true); // Đóng ngay lập tức
+
+                    // Đồng bộ nền
+                    google.script.run
+                        .withFailureHandler(err => console.error("Lỗi đồng bộ lưu đơn:", err))
+                        .updateOrderWithStaffSync(currentOrderDetail.orderCode, updatedOrder);
                 } catch (e) {
                     setError("Lưu thay đổi thất bại");
                 }
@@ -1026,90 +1031,77 @@
                         grandTotal: orderDetailCalc.grandTotal
                     };
 
-                    await new Promise((resolve, reject) => {
-                        google.script.run
-                            .withSuccessHandler(resolve)
-                            .withFailureHandler(reject)
-                            .updateOrderWithStaffSync(currentOrderDetail.orderCode, updatedOrder);
-                    });
+                    const paidOrder = {
+                        ...updatedOrder,
+                        endTime: new Date().toISOString(),
+                        paymentStatus: "Đã thanh toán"
+                    };
 
-                    await new Promise((resolve, reject) => {
-                        google.script.run
-                            .withSuccessHandler(resolve)
-                            .withFailureHandler(reject)
-                            .markOrderAsPaid(currentOrderDetail.orderCode, {
-                                bankPayment,
-                                cashPayment,
-                                paymentStatus: "Đã thanh toán"
-                            });
-                    });
+                    const updatedRooms = rooms.map(r =>
+                        String(r.current_order_id) === String(currentOrderDetail.orderCode)
+                            ? { ...r, status: 'available', start_time: null, current_order_id: '' }
+                            : r
+                    );
+
+                    // Cập nhật state ngay lập tức
+                    const updatedOrders = orders.map(o => o.orderCode === currentOrderDetail.orderCode ? paidOrder : o);
+                    setOrders(updatedOrders);
+                    setRooms(updatedRooms);
+                    setCurrentOrderDetail(paidOrder);
+
+                    saveUnifiedCache({ rooms: updatedRooms, orders: updatedOrders, products, staffs });
+
+                    setTempBankPayment(bankPayment);
+                    setTempCashPayment(cashPayment);
+                    clearOrderDraft(currentOrderDetail.orderCode);
+                    if (closeQrAfter) setShowQrModal(false);
+                    closeOrderDetailModal(true);
 
                     setSuccess(`Hoàn tất thanh toán đơn ${currentOrderDetail.orderCode}`);
                     setTimeout(() => setSuccess(""), 3000);
 
-                    // Cập nhật local state ngay thay vì reload
-                    const paidOrder = {
-                        ...currentOrderDetail,
-                        endTime: new Date().toISOString(),
-                        paymentStatus: "Đã thanh toán",
-                        bankPayment,
-                        cashPayment
-                    };
-                    const updatedOrders = orders.map(o => o.orderCode === currentOrderDetail.orderCode ? paidOrder : o);
-                    setOrders(updatedOrders);
-                    setCurrentOrderDetail(paidOrder);
+                    // Đồng bộ nền thành 2 request tách biệt
+                    google.script.run
+                        .withFailureHandler(console.error)
+                        .updateOrderWithStaffSync(currentOrderDetail.orderCode, updatedOrder);
 
-                    // Lưu vào cache
-                    saveUnifiedCache({
-                        rooms,
-                        orders: updatedOrders,
-                        products,
-                        staffs
-                    });
-
-                    setTempBankPayment(bankPayment);
-                    setTempCashPayment(cashPayment);
-                    clearOrderDraft(currentOrderDetail.orderCode); // xoá draft sau khi thanh toán xong
-                    if (closeQrAfter) setShowQrModal(false);
-                    closeOrderDetailModal(true); // clearDraft=true: không tạo draft mới
+                    google.script.run
+                        .withFailureHandler(console.error)
+                        .markOrderAsPaid(currentOrderDetail.orderCode, {
+                            bankPayment,
+                            cashPayment,
+                            paymentStatus: "Đã thanh toán"
+                        });
                 } catch (e) {
                     setError("Thanh toán thất bại");
                 }
             };
 
-            // Delete order
             const deleteOrder = async () => {
                 if (!currentOrderDetail) return;
 
                 if (window.confirm(`Bạn có chắc chắn muốn xoá đơn hàng ${currentOrderDetail.orderCode}?`)) {
                     try {
-                        await google.script.run
-                            .withSuccessHandler(() => { })
-                            .withFailureHandler(() => { })
-                            .deleteOrder(currentOrderDetail.orderCode);
-
-                        setSuccess(`Đã xoá đơn hàng ${currentOrderDetail.orderCode}`);
-                        setTimeout(() => setSuccess(""), 3000);
-
-                        // Cập nhật local state ngay thay vì reload
+                        // Cập nhật state lập tức
                         const updatedOrders = orders.filter(o => o.orderCode !== currentOrderDetail.orderCode);
                         const updatedRooms = rooms.map(r =>
                             String(r.current_order_id) === String(currentOrderDetail.orderCode)
                                 ? { ...r, status: 'available', start_time: null, current_order_id: '' }
                                 : r
                         );
+                        
                         setOrders(updatedOrders);
                         setRooms(updatedRooms);
+                        saveUnifiedCache({ rooms: updatedRooms, orders: updatedOrders, products, staffs });
 
-                        // Lưu vào cache
-                        saveUnifiedCache({
-                            rooms: updatedRooms,
-                            orders: updatedOrders,
-                            products,
-                            staffs
-                        });
-
+                        setSuccess(`Đã xoá đơn hàng ${currentOrderDetail.orderCode}`);
+                        setTimeout(() => setSuccess(""), 3000);
                         closeOrderDetailModal();
+
+                        // Đồng bộ nền xoá đơn
+                        google.script.run
+                            .withFailureHandler(console.error)
+                            .deleteOrder(currentOrderDetail.orderCode);
                     } catch (e) {
                         setError("Xoá đơn hàng thất bại: " + (e.message || e));
                     }
@@ -1402,53 +1394,63 @@
                     note: note.trim(),
                 };
 
-                setIsSubmittingOrder(true);
-                try {
-                    const res = await new Promise((resolve, reject) =>
-                        google.script.run
-                            .withSuccessHandler(resolve)
-                            .withFailureHandler(reject)
-                            .createOrder(orderData)
-                    );
+                const tempOrderCode = `TEMP-${Date.now()}`;
+                
+                const newOrder = {
+                    ...orderData,
+                    orderCode: tempOrderCode,
+                };
+                
+                const updatedOrders = [newOrder, ...orders];
+                const updatedRooms = rooms.map(r =>
+                    String(r.id) === String(selectedRoomIdForOrder)
+                        ? { ...r, status: 'occupied', current_order_id: tempOrderCode, start_time: orderData.startTime }
+                        : r
+                );
 
-                    if (res.success) {
-                        // Cập nhật local state ngay (optimistic update)
-                        const newOrder = {
-                            ...orderData,
-                            orderCode: res.orderCode,
-                            startTime: orderData.startTime,
-                            endTime: "",
-                            paymentStatus: "Chưa thanh toán"
-                        };
-                        const updatedOrders = [newOrder, ...orders];
+                // Cập nhật UI và LocalStorage ngay lập tức
+                setOrders(updatedOrders);
+                setRooms(updatedRooms);
+                saveUnifiedCache({ rooms: updatedRooms, orders: updatedOrders, products, staffs });
 
-                        // Dùng room data từ backend thay vì optimistic
-                        const updatedRooms = rooms.map(r =>
-                            String(r.id) === String(selectedRoomIdForOrder)
-                                ? res.room // Trả từ backend, update ngay!
-                                : r
-                        );
+                setSuccess(`Đang thiết lập phòng...`);
+                closeOrderModal();
 
-                        setOrders(updatedOrders);
-                        setRooms(updatedRooms);
-
-                        // Lưu vào cache ngay
-                        saveUnifiedCache({
-                            rooms: updatedRooms,
-                            orders: updatedOrders,
-                            products,
-                            staffs
-                        });
-
-                        setSuccess(`Tạo hoá đơn thành công! Mã HĐ: ${res.orderCode}`);
-                        closeOrderModal();
-                        setTimeout(() => setSuccess(""), 5000);
-                    }
-                } catch (e) {
-                    setError("Tạo đơn thất bại: " + (e.message || e));
-                } finally {
-                    setIsSubmittingOrder(false);
-                }
+                // Call backend ở chế độ nền
+                google.script.run
+                    .withSuccessHandler((res) => {
+                        if (res && res.success) {
+                            // Cập nhật lại UI dựa trên dữ liệu mới nhất (chống xung đột chức năng)
+                            setOrders(prevOrders => {
+                                const finalOrders = prevOrders.map(o => o.orderCode === tempOrderCode ? { ...o, orderCode: res.orderCode } : o);
+                                
+                                setRooms(prevRooms => {
+                                    const finalRooms = prevRooms.map(r => String(r.id) === String(selectedRoomIdForOrder) ? res.room : r);
+                                    
+                                    // Cập nhật lại Cache
+                                    try {
+                                        const c = JSON.parse(localStorage.getItem(DATA_CACHE_KEY) || "{}");
+                                        if (c.data) {
+                                            c.data.orders = finalOrders;
+                                            c.data.rooms = finalRooms;
+                                            localStorage.setItem(DATA_CACHE_KEY, JSON.stringify(c));
+                                        }
+                                    } catch(e) {}
+                                    
+                                    return finalRooms;
+                                });
+                                
+                                return finalOrders;
+                            });
+                            
+                            setSuccess(`Tạo phòng hoàn tất!`);
+                            setTimeout(() => setSuccess(""), 3000);
+                        }
+                    })
+                    .withFailureHandler((e) => {
+                        console.error('Tạo đơn thất bại', e);
+                    })
+                    .createOrder(orderData);
             };
 
             const availableRooms = useMemo(() => rooms.filter(r => String(r.status).toLowerCase() === "available"), [rooms]);
