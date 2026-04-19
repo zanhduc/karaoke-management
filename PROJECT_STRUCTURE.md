@@ -39,8 +39,9 @@ karaoke-management/
 
 #### Key Components:
 
-- **AuthProvider** - Wrapper component cho auth state management
-  - Timeout: 24 giờ (`SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000`)
+- `AuthProvider`:
+  - Context wrapper providing `user`, `login(username, password)`, `logout()`
+  - Timeout: 100 ngày (`SESSION_EXPIRY_MS = 100 * 24 * 60 * 60 * 1000`)
   - localStorage key: `authUser`
 
 - **MainApp** - Main navigation component
@@ -1025,7 +1026,7 @@ customerManager.html
 
 1. **When modifying field names:** Update both React state and GAS sheet headers
 2. **When adding new features:** Remember to call the corresponding GAS function
-3. **Session timeout:** 24 hours - update `SESSION_EXPIRY_MS` if needed
+3. **Session timeout:** 100 days - update `SESSION_EXPIRY_MS` if needed
 4. **Auto-refresh rate:** Most pages refresh every 30 seconds - modify intervals if needed
 5. **Local testing:** Keep `isLocal` checks for easier development
 6. **Error handling:** Always wrap GAS calls in try-catch or use withFailureHandler
