@@ -86,7 +86,6 @@
   <?!= include('productComponent'); ?>
   <?!= include('roomOrderIntegratedComponent.html'); ?>
   <?!= include('dashboardComponent'); ?>
-  <?!= include('customerManager.html'); ?>
   <?!= include('managerAccount.html'); ?>
   <script type="text/babel">
     // ============ SHARED REACT HOOKS ============
@@ -393,7 +392,6 @@
           if (p === "product") return "product";
           if (p === "room") return "room";
           if (p === "order-management") return "order-management";
-          if (p === "customer") return "customer";
           if (p === "dashboard" && user.role === "admin") return "dashboard";
           if (p === "account" && user.role === "admin") return "account";
           return "room";
@@ -420,7 +418,7 @@
       const ProductPage = window.ProductPage;
       const RoomPage = window.RoomPage;
       const DashboardPage = window.DashboardPage;
-      const CustomerPage = window.CustomerPage;
+
       const AccountManagementPage = window.AccountManagement;
 
       const renderPage = () => {
@@ -445,18 +443,6 @@
             );
           }
           return <RoomPage />;
-        }
-
-        if (page === "customer") {
-          if (!CustomerPage) {
-            return (
-              <div className="p-4 text-red-600">
-                Lỗi: chưa tải được CustomerPage. Kiểm tra file{" "}
-                <code>customerManager.html</code> và include trong index.
-              </div>
-            );
-          }
-          return <CustomerPage />;
         }
         if (page === "staff") {
           if (!StaffPage) {
@@ -499,7 +485,7 @@
         { id: "room", label: "🏠 Quản lý", roles: ["admin", "staff"] },
         { id: "staff", label: "👩‍💼 Nhân viên", roles: ["admin", "staff"] },
         { id: "product", label: "🛒 Hàng hoá", roles: ["admin", "staff"] },
-        { id: "customer", label: "👥 Khách hàng", roles: ["admin", "staff"] },
+
         { id: "dashboard", label: "📊 Dashboard", roles: ["admin"] },
         { id: "account", label: "🔐 Tài khoản", roles: ["admin"] },
       ].filter(item => item.roles.includes(user.role));
@@ -509,7 +495,6 @@
 
         staff: "👩‍💼 Nhân viên",
         product: "🛒 Hàng hoá",
-        customer: "👥 Khách hàng",
         dashboard: "📊 Dashboard",
         account: "🔐 Tài khoản",
       };
