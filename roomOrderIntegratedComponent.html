@@ -1,6 +1,8 @@
 <script type="text/babel">
     (function () {
         const { useEffect, useMemo, useState, useRef, useCallback } = React;
+        const ROOM_ORDER_BUILD = "2026-04-19-json-flow-v2";
+        console.log("[ROOM_ORDER_BUILD]", ROOM_ORDER_BUILD);
 
         // ═════════════════════════════════════════════════════════════════════
         // HELPER COMPONENTS & FUNCTIONS
@@ -33,12 +35,65 @@
         }
 
         function normalizeStaffTimer(staff) {
+            // Initialize sessions if not present (for old format compatibility)
+            if (!staff.sessions) {
+                // If startTime exists, create a session from it
+                const sessions = staff.startTime ? [{ startTime: staff.startTime, endTime: staff.endTime || null }] : [];
+                return {
+                    ...staff,
+                    sessions,
+                    isPaused: Boolean(staff?.isPaused),
+                    pauseStartedAt: staff?.pauseStartedAt || null,
+                    totalPausedMs: Number(staff?.totalPausedMs || 0),
+                };
+            }
             return {
                 ...staff,
                 isPaused: Boolean(staff?.isPaused),
                 pauseStartedAt: staff?.pauseStartedAt || null,
                 totalPausedMs: Number(staff?.totalPausedMs || 0),
             };
+        }
+
+        function normalizeListPayload(payload, preferredKeys = []) {
+            if (Array.isArray(payload)) return payload;
+            if (!payload || typeof payload !== "object") return [];
+
+            const candidateKeys = [...preferredKeys, "result", "data", "orders", "items", "list", "rows", "values"];
+            for (const key of candidateKeys) {
+                if (!(key in payload)) continue;
+                const nested = payload[key];
+                if (Array.isArray(nested)) return nested;
+                if (nested && typeof nested === "object") {
+                    const normalizedNested = normalizeListPayload(nested, []);
+                    if (normalizedNested.length > 0) return normalizedNested;
+                }
+            }
+
+            const numericKeys = Object.keys(payload)
+                .filter(key => /^\d+$/.test(key))
+                .sort((a, b) => Number(a) - Number(b));
+            if (numericKeys.length > 0) {
+                return numericKeys
+                    .map(key => payload[key])
+                    .filter(item => item !== null && item !== undefined);
+            }
+
+            if (payload.orderCode || payload.id) {
+                return [payload];
+            }
+
+            return [];
+        }
+
+        function parseServerJsonPayload(payload) {
+            if (typeof payload !== "string") return payload;
+            try {
+                return JSON.parse(payload);
+            } catch (e) {
+                console.warn("Could not parse server JSON payload:", e, payload);
+                return payload;
+            }
         }
 
         // API abstraction
@@ -55,9 +110,62 @@
                 });
             },
             getOrders(limit = 50) {
-                if (this.isLocal) return Promise.resolve([]);
+                console.log("🚀 RoomServer.getOrders() called, isLocal:", this.isLocal);
+                if (this.isLocal) {
+                    const sampleOrders = [
+                        { orderCode: "ORD-2026-001", roomId: 101, roomName: "Phòng 101", customerName: "Nguyễn Văn A", startTime: new Date(Date.now() - 3600000).toISOString(), endTime: new Date(Date.now() - 1800000).toISOString(), paymentStatus: "Đã thanh toán", grandTotal: 500000, products: [], staffs: [], bankPayment: 500000, cashPayment: 0 },
+                        { orderCode: "ORD-2026-002", roomId: 102, roomName: "Phòng 102", customerName: "Trần Thị B", startTime: new Date(Date.now() - 7200000).toISOString(), endTime: new Date(Date.now() - 3600000).toISOString(), paymentStatus: "Đã thanh toán", grandTotal: 750000, products: [], staffs: [], bankPayment: 750000, cashPayment: 0 },
+                        { orderCode: "ORD-2026-003", roomId: 103, roomName: "Phòng 103", customerName: "Lê Minh C", startTime: new Date(Date.now() - 1800000).toISOString(), endTime: null, paymentStatus: "Chưa thanh toán", grandTotal: 300000, products: [], staffs: [], bankPayment: 0, cashPayment: 0 },
+                    ];
+                    console.log("📦 LOCAL mode - returning sample orders:", sampleOrders);
+                    return Promise.resolve(sampleOrders);
+                }
                 return new Promise((resolve, reject) => {
-                    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getOrders(limit);
+                    console.log("📡 Calling backend getOrders with limit:", limit);
+                    google.script.run.withSuccessHandler((rawData) => {
+                        const data = parseServerJsonPayload(rawData);
+                        // 🔍 DETAILED LOG - Dump toàn bộ response
+                        console.log("🔍 === BACKEND RESPONSE DEBUG ===");
+                        console.log("Type:", typeof data);
+                        console.log("Is Array?:", Array.isArray(data));
+                        console.log("Raw value:", data);
+                        try {
+                            console.log("JSON string:", JSON.stringify(data).substring(0, 500)); // First 500 chars
+                        } catch (e) {
+                            console.warn("Could not stringify backend response:", e);
+                        }
+                        if (data && typeof data === 'object') {
+                            console.log("Keys:", Object.keys(data));
+                            console.log("Has 'result'?:", data.result !== undefined);
+                            console.log("Has 'data'?:", data.data !== undefined);
+                            console.log("Has 'orders'?:", data.orders !== undefined);
+                        }
+                        console.log("🔍 === END DEBUG ===");
+
+                        const orders = normalizeListPayload(data, ["orders"]);
+                        console.log("✅ Final orders array:", { count: orders.length, sample: orders[0] || null });
+                        if (orders.length === 0 && data && typeof data === "object") {
+                            console.warn("⚠️ Response did not match expected order list shape. Keys:", Object.keys(data));
+                        }
+                        resolve(orders);
+                    }).withFailureHandler((err) => {
+                        console.warn("getOrdersJson failed, fallback to getOrders:", err);
+                        google.script.run.withSuccessHandler((fallbackRawData) => {
+                            const fallbackData = parseServerJsonPayload(fallbackRawData);
+                            const orders = normalizeListPayload(fallbackData, ["orders"]);
+                            console.log("✅ Fallback getOrders resolved:", { count: orders.length, sample: orders[0] || null });
+                            resolve(orders);
+                        }).withFailureHandler((fallbackErr) => {
+                            console.error("❌ Backend getOrders failed:", fallbackErr);
+                            console.log("💡 Falling back to sample data");
+                            const fallbackOrders = [
+                                { orderCode: "ORD-2026-001", roomId: 101, roomName: "Phòng 101", customerName: "Nguyễn Văn A", startTime: new Date(Date.now() - 3600000).toISOString(), endTime: new Date(Date.now() - 1800000).toISOString(), paymentStatus: "Đã thanh toán", grandTotal: 500000, products: [], staffs: [], bankPayment: 500000, cashPayment: 0 },
+                                { orderCode: "ORD-2026-002", roomId: 102, roomName: "Phòng 102", customerName: "Trần Thị B", startTime: new Date(Date.now() - 7200000).toISOString(), endTime: new Date(Date.now() - 3600000).toISOString(), paymentStatus: "Đã thanh toán", grandTotal: 750000, products: [], staffs: [], bankPayment: 750000, cashPayment: 0 },
+                                { orderCode: "ORD-2026-003", roomId: 103, roomName: "Phòng 103", customerName: "Lê Minh C", startTime: new Date(Date.now() - 1800000).toISOString(), endTime: null, paymentStatus: "Chưa thanh toán", grandTotal: 300000, products: [], staffs: [], bankPayment: 0, cashPayment: 0 },
+                            ];
+                            resolve(fallbackOrders);
+                        }).getOrders(limit);
+                    }).getOrdersJson(limit);
                 });
             },
             getProducts() {
@@ -126,13 +234,53 @@
             getUnifiedRoomData() {
                 if (this.isLocal) return Promise.resolve({ rooms: [], orders: [], products: [], staffs: [], customers: [] });
                 return new Promise((resolve, reject) => {
-                    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getUnifiedRoomData();
+                    google.script.run.withSuccessHandler((rawData) => {
+                        const data = parseServerJsonPayload(rawData);
+                        resolve({
+                            ...data,
+                            rooms: normalizeListPayload(data?.rooms, ["rooms"]),
+                            orders: normalizeListPayload(data?.orders, ["orders"]),
+                            products: normalizeListPayload(data?.products, ["products"]),
+                            staffs: normalizeListPayload(data?.staffs, ["staffs"]),
+                            customers: normalizeListPayload(data?.customers, ["customers"]),
+                        });
+                    }).withFailureHandler((err) => {
+                        console.warn("getUnifiedRoomDataJson failed, fallback to getUnifiedRoomData:", err);
+                        google.script.run.withSuccessHandler((fallbackRawData) => {
+                            const data = parseServerJsonPayload(fallbackRawData);
+                            resolve({
+                                ...data,
+                                rooms: normalizeListPayload(data?.rooms, ["rooms"]),
+                                orders: normalizeListPayload(data?.orders, ["orders"]),
+                                products: normalizeListPayload(data?.products, ["products"]),
+                                staffs: normalizeListPayload(data?.staffs, ["staffs"]),
+                                customers: normalizeListPayload(data?.customers, ["customers"]),
+                            });
+                        }).withFailureHandler(reject).getUnifiedRoomData();
+                    }).getUnifiedRoomDataJson();
                 });
             },
             getRoomAndOrderData() {
                 if (this.isLocal) return Promise.resolve({ rooms: [], orders: [] });
                 return new Promise((resolve, reject) => {
-                    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getRoomAndOrderData();
+                    google.script.run.withSuccessHandler((rawData) => {
+                        const data = parseServerJsonPayload(rawData);
+                        resolve({
+                            ...data,
+                            rooms: normalizeListPayload(data?.rooms, ["rooms"]),
+                            orders: normalizeListPayload(data?.orders, ["orders"]),
+                        });
+                    }).withFailureHandler((err) => {
+                        console.warn("getRoomAndOrderDataJson failed, fallback to getRoomAndOrderData:", err);
+                        google.script.run.withSuccessHandler((fallbackRawData) => {
+                            const data = parseServerJsonPayload(fallbackRawData);
+                            resolve({
+                                ...data,
+                                rooms: normalizeListPayload(data?.rooms, ["rooms"]),
+                                orders: normalizeListPayload(data?.orders, ["orders"]),
+                            });
+                        }).withFailureHandler(reject).getRoomAndOrderData();
+                    }).getRoomAndOrderDataJson();
                 });
             }
         };
@@ -216,25 +364,40 @@
             const [discountCustomer, setDiscountCustomer] = useState(0);
             const [adjustment, setAdjustment] = useState(0);
 
+            // ──── Order Completed Table States ────
+            const [searchQuery, setSearchQuery] = useState("");
+            const [currentPage, setCurrentPage] = useState(1);
+            const PAGE_SIZE = 12;
+            const [selectedOrder, setSelectedOrder] = useState(null);
+            const [showOrderCompletedModal, setShowOrderCompletedModal] = useState(false);
+            const [elapsedTick, setElapsedTick] = useState(0);
+            const [notification, setNotification] = useState(null);
+
             const DATA_CACHE_KEY = "karaoke_room_unified_cache_v1";
             const DATA_CACHE_TTL_MS = 60 * 1000;
 
             const applyUnifiedDataToState = useCallback((data, keepCatalogIfMissing = true) => {
                 if (!data || typeof data !== "object") return;
-                if (Array.isArray(data.rooms)) setRooms(data.rooms);
-                if (Array.isArray(data.orders)) setOrders(data.orders);
-                if (Array.isArray(data.products)) {
-                    setProducts(data.products);
+                const nextRooms = normalizeListPayload(data.rooms, ["rooms"]);
+                const nextOrders = normalizeListPayload(data.orders, ["orders"]);
+                const nextProducts = normalizeListPayload(data.products, ["products"]);
+                const nextStaffs = normalizeListPayload(data.staffs, ["staffs"]);
+                const nextCustomers = normalizeListPayload(data.customers, ["customers"]);
+
+                if (nextRooms.length || Array.isArray(data.rooms)) setRooms(nextRooms);
+                if (nextOrders.length || Array.isArray(data.orders)) setOrders(nextOrders);
+                if (nextProducts.length || Array.isArray(data.products)) {
+                    setProducts(nextProducts);
                 } else if (!keepCatalogIfMissing) {
                     setProducts([]);
                 }
-                if (Array.isArray(data.staffs)) {
-                    setStaffs(data.staffs);
+                if (nextStaffs.length || Array.isArray(data.staffs)) {
+                    setStaffs(nextStaffs);
                 } else if (!keepCatalogIfMissing) {
                     setStaffs([]);
                 }
-                if (Array.isArray(data.customers)) {
-                    setCustomers(data.customers);
+                if (nextCustomers.length || Array.isArray(data.customers)) {
+                    setCustomers(nextCustomers);
                 } else if (!keepCatalogIfMissing) {
                     setCustomers([]);
                 }
@@ -286,14 +449,26 @@
                     const loadPromise = (async () => {
                         // Fetch rooms (nhanh nhất - ít data)
                         const rooms = await RoomServer.getRooms().catch(err => {
-                            console.warn("Load rooms failed:", err);
+                            console.error("❌ Load rooms failed:", err);
                             return [];
                         });
+                        console.log("✅ Rooms loaded:", rooms);
                         // Fetch orders (medium - có limit)
-                        const orders = await RoomServer.getOrders().catch(err => {
-                            console.warn("Load orders failed:", err);
+                        let orders = await RoomServer.getOrders().catch(err => {
+                            console.error("❌ Load orders failed:", err);
                             return [];
                         });
+                        // Ensure orders is always an array
+                        orders = Array.isArray(orders) ? orders : [];
+                        console.log("🔍 Orders after fetch - type:", typeof orders, "isArray:", Array.isArray(orders), "length:", orders.length);
+                        console.log("✅ Orders loaded successfully:", {
+                            count: orders.length,
+                            sample: orders[0] || null,
+                            allOrders: orders
+                        });
+                        if (!orders || orders.length === 0) {
+                            console.warn("⚠️ Warning: No orders returned from backend - count is", orders.length);
+                        }
                         // Fetch catalog (products, staffs, customers) - parallel
                         const [products, staffs, customers] = await Promise.all([
                             RoomServer.getProducts().catch(err => {
@@ -334,12 +509,16 @@
             const loadBackground = useCallback(async () => {
                 try {
                     const data = await RoomServer.getRoomAndOrderData();
+                    if (!data || typeof data !== "object") {
+                        console.warn("Background load: invalid data response", data);
+                        return;
+                    }
                     const nextRooms = Array.isArray(data.rooms) ? data.rooms : [];
                     const nextOrders = Array.isArray(data.orders) ? data.orders : [];
                     setRooms(nextRooms);
                     setOrders(nextOrders);
                 } catch (e) {
-                    console.warn("Background load failed", e);
+                    console.warn("Background load failed:", e);
                 }
             }, []);
 
@@ -472,9 +651,14 @@
                         try {
                             order = await new Promise((res, rej) =>
                                 google.script.run
-                                    .withSuccessHandler(res)
-                                    .withFailureHandler(() => rej(new Error("Không thể lấy order")))
-                                    .getOrderByCode(room.current_order_id)
+                                    .withSuccessHandler((rawData) => res(parseServerJsonPayload(rawData)))
+                                    .withFailureHandler(() => {
+                                        google.script.run
+                                            .withSuccessHandler((fallbackRawData) => res(parseServerJsonPayload(fallbackRawData)))
+                                            .withFailureHandler(() => rej(new Error("Không thể lấy order")))
+                                            .getOrderByCode(room.current_order_id);
+                                    })
+                                    .getOrderByCodeJson(room.current_order_id)
                             );
                         } catch (e) {
                             setCurrentOrderDetail(null);
@@ -488,13 +672,26 @@
                         return;
                     }
                     const products = order.products ? (typeof order.products === "string" ? JSON.parse(order.products) : order.products) : [];
-                    const staffs = order.staffs
+                    let staffs = order.staffs
                         ? (typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs)
                         : [];
+                    // Ensure all staffs have sessions initialized
+                    staffs = Array.isArray(staffs) ? staffs : [];
                     const endTime = order.endTime || new Date(Date.now() + 2 * 3600000).toISOString();
                     setCurrentOrderDetail({ ...order, products, staffs, endTime, customerName: order.customerName || "Vãng lai" });
                     setTempProducts(products);
-                    setTempStaffs(staffs.map(normalizeStaffTimer));
+                    const normalizedStaffs = staffs.map(normalizeStaffTimer);
+                    setTempStaffs(normalizedStaffs);
+                    console.log("📋 Order detail loaded successfully:", {
+                        orderCode: order.orderCode,
+                        staffCount: normalizedStaffs.length,
+                        staffs: normalizedStaffs.map(s => ({
+                            id: s.id,
+                            name: s.name,
+                            hasSessions: !!s.sessions,
+                            sessions: s.sessions
+                        }))
+                    });
                     setTempBankPayment(order.bankPayment || 0);
                     setTempCashPayment(order.cashPayment || 0);
                     setTempNote(order.note || "");
@@ -551,23 +748,59 @@
             };
 
             // Functions for managing staff in order detail
+            const setStaffAvailabilityLocal = (staffId, status, currentRoomId = "") => {
+                setStaffs(prev => prev.map(staff =>
+                    String(staff.id) === String(staffId)
+                        ? { ...staff, status, current_room_id: currentRoomId }
+                        : staff
+                ));
+            };
+
+            const releaseStaffFromCurrentOrder = (staffId) => {
+                setTempStaffs(prev => prev.filter(s => String(s.id) !== String(staffId)));
+                setStaffAvailabilityLocal(staffId, "available", "");
+            };
+
             const removeStaffFromOrder = (id) => {
-                setTempStaffs(tempStaffs.filter(s => s.id !== id));
+                releaseStaffFromCurrentOrder(id);
             };
 
             const addStaffToCurrentOrder = (staff) => {
-                if (!tempStaffs.find(s => s.id === staff.id)) {
+                const now = new Date().toISOString();
+                const existingStaff = tempStaffs.find(s => s.id === staff.id);
+                if (existingStaff) {
+                    // Nếu tiếp viên này đã có, thêm session mới vào
+                    setTempStaffs(tempStaffs.map(s =>
+                        s.id === staff.id
+                            ? { ...s, sessions: [...(s.sessions || []), { startTime: now, endTime: null }] }
+                            : s
+                    ));
+                } else {
+                    // Tiếp viên mới
                     setTempStaffs([
                         ...tempStaffs,
-                        { ...staff, startTime: new Date().toISOString(), isPaused: false, pauseStartedAt: null, totalPausedMs: 0 }
+                        { ...staff, sessions: [{ startTime: now, endTime: null }] }
                     ]);
                 }
+                setStaffAvailabilityLocal(
+                    staff.id,
+                    "busy",
+                    currentOrderDetail?.roomId || selectedRoomDetail?.id || selectedRoomIdForOrder || ""
+                );
             };
 
             const availableStaffsForOrder = useMemo(() => {
                 const addedIds = new Set(tempStaffs.map(s => s.id));
-                return staffs.filter(s => !addedIds.has(s.id));
+                return staffs.filter(s =>
+                    String(s.status || "available").toLowerCase() === "available" &&
+                    !addedIds.has(s.id)
+                );
             }, [staffs, tempStaffs]);
+
+            // Kết thúc session tiếp viên (Rời phòng)
+            const endStaffSession = (staffId) => {
+                releaseStaffFromCurrentOrder(staffId);
+            };
 
             // Toggle pause time
             const togglePauseTime = () => {
@@ -655,24 +888,45 @@
                     calcEndTime = new Date(pausedTimeMs);
                 }
 
-                // Tính riêng cho từng tiếp viên
+                // Tính riêng cho từng tiếp viên với sessions
                 const staffBreakdown = tempStaffs.map(s => {
-                    const staffStart = s.startTime ? new Date(s.startTime) : new Date(currentOrderDetail?.startTime || new Date());
-                    const pausedFromPrevious = Number(s.totalPausedMs || 0);
-                    const pauseStartedAtMs = s.pauseStartedAt ? new Date(s.pauseStartedAt).getTime() : 0;
-                    const livePausedMs = s.isPaused ? Math.max(0, calcEndTime.getTime() - pauseStartedAtMs) : 0;
-                    const totalStaffPausedMs = pausedFromPrevious + livePausedMs;
-                    const activeEndTimeMs = s.isPaused && pauseStartedAtMs ? pauseStartedAtMs : calcEndTime.getTime();
-                    let durationMs = activeEndTimeMs - staffStart.getTime() - totalStaffPausedMs;
-                    if (durationMs < 0) durationMs = 0;
-                    const durationMinutes = durationMs / (1000 * 60);
+                    const sessions = s.sessions || [];
+                    let totalStaffDurationMs = 0;
+                    let sessionsDisplay = [];
+
+                    if (sessions.length === 0 && s.startTime) {
+                        // Fallback: use old format (startTime/endTime)
+                        const startTime = new Date(s.startTime).getTime();
+                        const endTime = s.endTime ? new Date(s.endTime).getTime() : calcEndTime.getTime();
+                        const durationMs = Math.max(0, endTime - startTime);
+                        totalStaffDurationMs = durationMs;
+                        const startStr = new Date(s.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                        const endStr = s.endTime ? new Date(s.endTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—';
+                        sessionsDisplay.push(`${startStr} - ${endStr}`);
+                    } else {
+                        sessions.forEach(session => {
+                            if (!session || !session.startTime) return;
+                            const startTime = new Date(session.startTime).getTime();
+                            const endTime = session.endTime ? new Date(session.endTime).getTime() : calcEndTime.getTime();
+                            const durationMs = Math.max(0, endTime - startTime);
+                            totalStaffDurationMs += durationMs;
+
+                            // Format: 11:10 - 12:00
+                            const startStr = new Date(session.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                            const endStr = session.endTime ? new Date(session.endTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—';
+                            sessionsDisplay.push(`${startStr} - ${endStr}`);
+                        });
+                    }
+
+                    const durationMinutes = totalStaffDurationMs / (1000 * 60);
                     const durationHours = durationMinutes / 60;
                     const rawMoney = ((Number(s.price_per_hour) || 0) / 60) * durationMinutes;
                     const money = Math.round(rawMoney / 1000) * 1000;
                     const hh = Math.floor(durationHours);
                     const mm = Math.floor(durationMinutes % 60);
                     const durationLabel = `${hh}h ${mm < 10 ? '0' : ''}${mm}m`;
-                    return { ...s, durationMs, durationMinutes, durationHours, durationLabel, money };
+
+                    return { ...s, durationMs: totalStaffDurationMs, durationMinutes, durationHours, durationLabel, money, sessions, sessionsDisplay };
                 });
 
                 const staffTotal = staffBreakdown.reduce((sum, s) => sum + s.money, 0);
@@ -695,8 +949,8 @@
 
                 const updatedOrder = {
                     ...currentOrderDetail,
-                    products: JSON.stringify(tempProducts),
-                    staffs: JSON.stringify(tempStaffs),
+                    products: tempProducts,
+                    staffs: tempStaffs,
                     bankPayment: tempBankPayment,
                     cashPayment: tempCashPayment,
                     note: tempNote,
@@ -704,10 +958,12 @@
                 };
 
                 try {
-                    await google.script.run
-                        .withSuccessHandler(() => { })
-                        .withFailureHandler(() => { })
-                        .updateOrder(currentOrderDetail.orderCode, updatedOrder);
+                    await new Promise((resolve, reject) => {
+                        google.script.run
+                            .withSuccessHandler(resolve)
+                            .withFailureHandler(reject)
+                            .updateOrderWithStaffSync(currentOrderDetail.orderCode, updatedOrder);
+                    });
 
                     // Cập nhật local state ngay thay vì reload
                     const updatedOrders = orders.map(o => o.orderCode === currentOrderDetail.orderCode ? updatedOrder : o);
@@ -750,14 +1006,33 @@
                 }
 
                 try {
-                    await google.script.run
-                        .withSuccessHandler(() => { })
-                        .withFailureHandler(() => { })
-                        .markOrderAsPaid(currentOrderDetail.orderCode, {
-                            bankPayment,
-                            cashPayment,
-                            paymentStatus: "Đã thanh toán"
-                        });
+                    const updatedOrder = {
+                        ...currentOrderDetail,
+                        products: tempProducts,
+                        staffs: tempStaffs,
+                        bankPayment,
+                        cashPayment,
+                        note: tempNote,
+                        grandTotal: orderDetailCalc.grandTotal
+                    };
+
+                    await new Promise((resolve, reject) => {
+                        google.script.run
+                            .withSuccessHandler(resolve)
+                            .withFailureHandler(reject)
+                            .updateOrderWithStaffSync(currentOrderDetail.orderCode, updatedOrder);
+                    });
+
+                    await new Promise((resolve, reject) => {
+                        google.script.run
+                            .withSuccessHandler(resolve)
+                            .withFailureHandler(reject)
+                            .markOrderAsPaid(currentOrderDetail.orderCode, {
+                                bankPayment,
+                                cashPayment,
+                                paymentStatus: "Đã thanh toán"
+                            });
+                    });
 
                     setSuccess(`Hoàn tất thanh toán đơn ${currentOrderDetail.orderCode}`);
                     setTimeout(() => setSuccess(""), 3000);
@@ -854,6 +1129,150 @@
                 });
                 return map;
             }, [orders]);
+
+            // ──── Completed Orders Table Logic ────
+            const completedOrders = useMemo(() => {
+                // Hiển thị tất cả orders có orderCode (các orders hợp lệ)
+                return orders.filter(o => o && o.orderCode);
+            }, [orders]);
+
+            const filteredCompletedOrders = useMemo(() => {
+                if (!searchQuery.trim()) return completedOrders;
+                const q = searchQuery.toLowerCase();
+                return completedOrders.filter(o =>
+                    o.orderCode?.toLowerCase().includes(q) ||
+                    o.customerName?.toLowerCase().includes(q) ||
+                    o.roomName?.toLowerCase().includes(q) ||
+                    String(o.roomId).includes(q)
+                );
+            }, [completedOrders, searchQuery]);
+
+            const sortedCompletedOrders = useMemo(() => {
+                return [...filteredCompletedOrders].sort((a, b) => {
+                    const getOrderTime = (o) => {
+                        const t = o?.endTime || o?.updatedAt || o?.createdAt || o?.startTime;
+                        const ms = t ? new Date(t).getTime() : 0;
+                        return Number.isFinite(ms) ? ms : 0;
+                    };
+                    return getOrderTime(b) - getOrderTime(a);
+                });
+            }, [filteredCompletedOrders]);
+
+            const totalPages = useMemo(
+                () => Math.max(1, Math.ceil(sortedCompletedOrders.length / PAGE_SIZE)),
+                [sortedCompletedOrders.length]
+            );
+
+            const paginatedCompletedOrders = useMemo(() => {
+                const start = (currentPage - 1) * PAGE_SIZE;
+                return sortedCompletedOrders.slice(start, start + PAGE_SIZE);
+            }, [sortedCompletedOrders, currentPage]);
+
+            useEffect(() => {
+                setCurrentPage(1);
+            }, [searchQuery, orders.length]);
+
+            useEffect(() => {
+                if (currentPage > totalPages) setCurrentPage(totalPages);
+            }, [currentPage, totalPages]);
+
+            // Auto-dismiss notification
+            useEffect(() => {
+                if (notification && notification.duration) {
+                    const timer = setTimeout(() => {
+                        setNotification(null);
+                    }, notification.duration);
+                    return () => clearTimeout(timer);
+                }
+            }, [notification]);
+
+            // Update elapsed time for real-time calculation
+            useEffect(() => {
+                if (!showOrderCompletedModal || selectedOrder?.paymentStatus === "Đã thanh toán") return;
+
+                const interval = setInterval(() => {
+                    setElapsedTick(t => t + 1);
+                }, 1000);
+                return () => clearInterval(interval);
+            }, [showOrderCompletedModal, selectedOrder?.paymentStatus]);
+
+            const openOrderCompletedDetail = (order) => {
+                setSelectedOrder(order);
+                const products = order.products ? (typeof order.products === "string" ? JSON.parse(order.products) : order.products) : [];
+                const staffs = order.staffs ? (typeof order.staffs === "string" ? JSON.parse(order.staffs) : order.staffs) : [];
+                setTempProducts(products);
+                setTempStaffs(staffs);
+                setTempBankPayment(order.bankPayment || 0);
+                setTempCashPayment(order.cashPayment || 0);
+                setTempNote(order.note || "");
+                setShowOrderCompletedModal(true);
+            };
+
+            const closeOrderCompletedModal = () => {
+                setShowOrderCompletedModal(false);
+                setSelectedOrder(null);
+            };
+
+            // Tính ước tính duration và tiền phòng khi chưa thanh toán
+            const estimatedCalcForCompleted = useMemo(() => {
+                if (!selectedOrder?.startTime) return { estimatedDuration: 0, estimatedRoomTotal: 0 };
+
+                const startTime = new Date(selectedOrder.startTime);
+                const now = new Date();
+                const durationMs = now.getTime() - startTime.getTime();
+                const durationMinutes = durationMs / (1000 * 60);
+                const durationHours = durationMinutes / 60;
+                const estimatedDuration = durationHours.toFixed(2);
+
+                // Lấy room price từ rooms list
+                const room = rooms.find(r => String(r.id) === String(selectedOrder.roomId));
+                const roomPrice = room ? Number(room.price_per_hour) || 0 : 0;
+                const rawRoomTotal = (roomPrice / 60) * durationMinutes;
+                const estimatedRoomTotal = Math.round(rawRoomTotal / 1000) * 1000;
+
+                return { estimatedDuration, estimatedRoomTotal };
+            }, [selectedOrder?.startTime, rooms, elapsedTick]);
+
+            // Tính tổng tiền realtime trong modal
+            const calcForCompleted = useMemo(() => {
+                // Tính tiền hàng hoá + tiếp viên
+                const productTotal = tempProducts.reduce((sum, p) => sum + (Number(p.price) * (p.quantity || 1)), 0);
+                const staffTotal = tempStaffs.reduce((sum, s) => sum + (Number(s.price_per_hour) || 0), 0);
+
+                // Nếu đã thanh toán, dùng giá trị thực từ order; nếu chưa, dùng ước tính
+                const roomTotal = selectedOrder?.paymentStatus === "Đã thanh toán"
+                    ? (selectedOrder?.roomTotal || 0)
+                    : estimatedCalcForCompleted.estimatedRoomTotal;
+
+                const serviceTotal = productTotal + staffTotal;
+                const subtotal = serviceTotal + roomTotal;
+                const grandTotal = Math.max(0, subtotal - (selectedOrder?.discountCustomer || 0) + (selectedOrder?.adjustment || 0));
+
+                return { serviceTotal, roomTotal, grandTotal, prodTotal: productTotal, staffTotal };
+            }, [tempProducts, tempStaffs, selectedOrder, estimatedCalcForCompleted]);
+
+            // Xoá order từ completed table
+            const deleteOrderFromCompleted = async () => {
+                if (!selectedOrder) return;
+                if (!window.confirm(`Bạn có chắc muốn XOÁ HẲN order ${selectedOrder.orderCode}? Hành động này không thể hoàn tác!`)) return;
+
+                try {
+                    await new Promise((res, rej) => {
+                        google.script.run
+                            .withSuccessHandler(res)
+                            .withFailureHandler(rej)
+                            .deleteOrder(selectedOrder.orderCode);
+                    });
+                    setSuccess(`Đã xoá order ${selectedOrder.orderCode}`);
+                    setTimeout(() => setSuccess(""), 2500);
+                    const updatedOrders = orders.filter(o => o.orderCode !== selectedOrder.orderCode);
+                    setOrders(updatedOrders);
+                    saveUnifiedCache({ rooms, orders: updatedOrders, products, staffs, customers });
+                    closeOrderCompletedModal();
+                } catch (e) {
+                    setError("Xoá order thất bại: " + (e.message || e));
+                }
+            };
 
             // ──── Order Modal Functions ────
             const openOrderModal = async (roomId) => {
@@ -1194,8 +1613,8 @@ ${change > 0 ? "" : ""}
             const btnDanger = `${btnBase} bg-rose-600 text-white hover:bg-rose-700`;
 
             return (
-                <div className="max-w-5xl mx-auto p-4 bg-slate-100/80">
-                    <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+                <div className="w-full min-h-screen bg-white flex flex-col overflow-x-hidden">
+                    <div className="flex-1 flex flex-col">
 
                         {/* Header */}
                         <div className="px-6 py-6 border-b bg-slate-50 flex items-center justify-between">
@@ -1216,108 +1635,198 @@ ${change > 0 ? "" : ""}
                         {error && <div className="mx-6 mt-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl">{error}</div>}
                         {success && <div className="mx-6 mt-4 p-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-2xl">{success}</div>}
 
-                        {/* Filter */}
-                        <div className="p-6 border-b flex flex-col md:flex-row gap-4 bg-white">
-                            <div className="flex-1">
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Trạng thái</label>
-                                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
-                                    <option value="all">Tất cả trạng thái</option>
-                                    <option value="available">🟢 Trống</option>
-                                    <option value="occupied">🔴 Đang dùng</option>
-                                    <option value="cleaning">🟡 Đang dọn</option>
-                                </select>
-                            </div>
-                            <div className="flex-1">
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Loại phòng</label>
-                                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="w-full rounded-2xl border border-slate-200 px-4 py-3 bg-white">
-                                    <option value="all">Tất cả loại</option>
-                                    <option value="VIP">VIP</option>
-                                    <option value="thường">Thường</option>
-                                </select>
-                            </div>
-                        </div>
+                        {/* ════════════════════════════════════════════════════════════ */}
+                        {/* LAYOUT 2 COLUMNS: ORDER (LEFT) & ROOMS (RIGHT) */}
+                        {/* ════════════════════════════════════════════════════════════ */}
 
-                        {/* Danh sách phòng */}
-                        <div className="p-6">
-                            {isLoading ? (
-                                <div className="text-center py-12 text-slate-500">Đang tải danh sách phòng...</div>
-                            ) : filteredRooms.length === 0 ? (
-                                <div className="text-center py-12 text-slate-400">Không tìm thấy phòng nào phù hợp với bộ lọc.</div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {filteredRooms.map((r) => {
-                                        const canChangeStatus = r.status !== "occupied";
-                                        const canEdit = r.status !== "occupied";
-                                        let endTime = null;
-                                        if (r.current_order_id && r.status === "occupied") {
-                                            // Fix: Check nếu orderByCodeMap là Map trước khi gọi .get()
-                                            const order = (orderByCodeMap && typeof orderByCodeMap.get === 'function') ? orderByCodeMap.get(String(r.current_order_id)) : null;
-                                            if (order && order.endTime) {
-                                                endTime = order.endTime;
-                                            }
-                                        }
-                                        if (!endTime && r.start_time) {
-                                            endTime = new Date(new Date(r.start_time).getTime() + 7200000).toISOString();
-                                        }
+                        <div className="flex gap-6 p-6">
+                            {/* ════════════════ LEFT COLUMN: ORDER TABLE ════════════════ */}
+                            <div className="flex-1 min-w-0">
+                                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col h-full">
+                                    {/* Header */}
+                                    <div className="px-6 py-5 border-b bg-slate-50 flex justify-between items-center">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-slate-800">Danh sách Order Đã Chốt</h2>
+                                            <p className="text-slate-400 text-sm mt-1">Các hoá đơn đã thanh toán</p>
+                                        </div>
+                                    </div>
 
-                                        return (
-                                            <div key={String(r.id)} className="bg-white border border-slate-200 hover:border-slate-300 rounded-3xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="font-semibold text-xl text-slate-800">{r.name}</div>
-                                                        <StatusPill status={r.status} startTime={r.start_time} />
-                                                    </div>
-                                                    <div className="mt-2 text-sm text-slate-500">
-                                                        {r.type} • {Number(r.price_per_hour).toLocaleString('vi-VN')}đ/giờ
-                                                        {r.current_order_id && <span className="ml-3 text-amber-600">• Order: {r.current_order_id}</span>}
-                                                    </div>
-                                                </div>
+                                    {/* Search */}
+                                    <div className="px-6 py-4 border-b bg-white">
+                                        <input
+                                            type="text"
+                                            placeholder="🔍 Tìm order..."
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:border-slate-400"
+                                        />
+                                    </div>
 
-                                                <div className="flex gap-2 flex-wrap">
-                                                    {r.status === "available" && (
-                                                        <button
-                                                            onClick={() => openOrderModal(r.id)}
-                                                            className="px-5 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl"
-                                                        >
-                                                            💳 Soạn đơn
-                                                        </button>
-                                                    )}
-                                                    {r.status === "occupied" && (
-                                                        <button
-                                                            onClick={() => openRoomDetail(r)}
-                                                            className="px-5 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl"
-                                                        >
-                                                            📋 Chi tiết
-                                                        </button>
-                                                    )}
-                                                    {canChangeStatus && (
-                                                        <button
-                                                            onClick={() => changeStatus(r)}
-                                                            className="px-5 py-2 text-sm font-medium border border-slate-300 hover:bg-slate-50 rounded-2xl"
-                                                        >
-                                                            Đổi trạng thái
-                                                        </button>
-                                                    )}
-                                                    {canEdit && (
-                                                        <button
-                                                            onClick={() => openEditModal(r)}
-                                                            className="px-5 py-2 text-sm font-medium border border-slate-300 hover:border-slate-400 hover:text-slate-700 rounded-2xl"
-                                                        >
-                                                            Sửa
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        onClick={() => confirmDelete(r.id)}
-                                                        className="px-5 py-2 text-sm font-medium bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl"
-                                                    >
-                                                        Xoá
-                                                    </button>
-                                                </div>
+                                    {/* Table */}
+                                    <div className="flex-1 overflow-auto">
+                                        {filteredCompletedOrders.length === 0 ? (
+                                            <div className="text-center py-12 text-slate-400 text-sm px-6">
+                                                {searchQuery ? "Không tìm thấy order nào" : "Chưa có order nào được chốt"}
                                             </div>
-                                        );
-                                    })}
+                                        ) : (
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm">
+                                                    <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                                                        <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                                                            <th className="px-4 py-3 font-semibold whitespace-nowrap">Mã đơn</th>
+                                                            <th className="px-4 py-3 font-semibold whitespace-nowrap">Phòng</th>
+                                                            <th className="px-4 py-3 font-semibold whitespace-nowrap">Khách</th>
+                                                            <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Tổng</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {paginatedCompletedOrders.map(order => (
+                                                            <tr
+                                                                key={order.orderCode}
+                                                                onClick={() => openOrderCompletedDetail(order)}
+                                                                className="hover:bg-slate-50 cursor-pointer transition-colors"
+                                                            >
+                                                                <td className="px-4 py-3 font-semibold text-slate-800">{order.orderCode}</td>
+                                                                <td className="px-4 py-3 text-slate-700 text-sm">{order.roomName || `Phòng ${order.roomId}`}</td>
+                                                                <td className="px-4 py-3 text-slate-700 text-sm">{order.customerName || "Vãng lai"}</td>
+                                                                <td className="px-4 py-3 text-right font-bold text-slate-800 text-sm">{Number(order.grandTotal || 0).toLocaleString()}đ</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Pagination */}
+                                    <div className="px-6 py-4 border-t bg-white flex items-center justify-between text-sm">
+                                        <span className="text-slate-500">Trang {currentPage}/{totalPages}</span>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                                disabled={currentPage === 1}
+                                                className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                                            >
+                                                Trước
+                                            </button>
+                                            <button
+                                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                                disabled={currentPage === totalPages}
+                                                className="px-2 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                                            >
+                                                Sau
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
+                            </div>
+
+                            {/* ════════════════ RIGHT COLUMN: ROOMS LIST ════════════════ */}
+                            <div className="flex-1 min-w-0">
+                                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden flex flex-col h-full">
+                                    {/* Header */}
+                                    <div className="px-6 py-5 border-b bg-slate-50 flex justify-between items-center">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-slate-800">Quản lý Phòng</h2>
+                                            <p className="text-slate-400 text-sm mt-1">Danh sách phòng karaoke</p>
+                                        </div>
+
+                                    </div>
+
+                                    {/* Filter */}
+                                    <div className="px-6 py-4 border-b bg-white space-y-3">
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 mb-1.5">Trạng thái</label>
+                                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                                                <option value="all">Tất cả</option>
+                                                <option value="available">🟢 Trống</option>
+                                                <option value="occupied">🔴 Đang dùng</option>
+                                                <option value="cleaning">🟡 Đang dọn</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-slate-500 mb-1.5">Loại phòng</label>
+                                            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white">
+                                                <option value="all">Tất cả</option>
+                                                <option value="VIP">VIP</option>
+                                                <option value="thường">Thường</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Rooms List */}
+                                    <div className="flex-1 overflow-auto">
+                                        {isLoading ? (
+                                            <div className="text-center py-12 text-slate-500 text-sm px-6">Đang tải...</div>
+                                        ) : filteredRooms.length === 0 ? (
+                                            <div className="text-center py-12 text-slate-400 text-sm px-6">Không tìm thấy phòng</div>
+                                        ) : (
+                                            <div className="space-y-2 p-4">
+                                                {filteredRooms.map((r) => {
+                                                    const canChangeStatus = r.status !== "occupied";
+                                                    const canEdit = r.status !== "occupied";
+
+                                                    return (
+                                                        <div key={String(r.id)} className="bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-2xl p-3">
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="font-semibold text-slate-800 truncate">{r.name}</div>
+                                                                        <StatusPill status={r.status} startTime={r.start_time} />
+                                                                    </div>
+                                                                    <div className="text-xs text-slate-500 mt-1">
+                                                                        {r.type} • {Number(r.price_per_hour).toLocaleString('vi-VN')}đ/h
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex gap-1.5 flex-wrap mt-2">
+                                                                {r.status === "available" && (
+                                                                    <button
+                                                                        onClick={() => openOrderModal(r.id)}
+                                                                        className="px-2 py-1 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded"
+                                                                    >
+                                                                        💳 Soạn
+                                                                    </button>
+                                                                )}
+                                                                {r.status === "occupied" && (
+                                                                    <button
+                                                                        onClick={() => openRoomDetail(r)}
+                                                                        className="px-2 py-1 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded"
+                                                                    >
+                                                                        📋 Chi tiết
+                                                                    </button>
+                                                                )}
+                                                                {canChangeStatus && (
+                                                                    <button
+                                                                        onClick={() => changeStatus(r)}
+                                                                        className="px-2 py-1 text-xs font-medium border border-slate-300 hover:bg-slate-100 rounded"
+                                                                    >
+                                                                        Đổi
+                                                                    </button>
+                                                                )}
+                                                                {canEdit && (
+                                                                    <button
+                                                                        onClick={() => openEditModal(r)}
+                                                                        className="px-2 py-1 text-xs font-medium border border-slate-300 hover:bg-slate-100 rounded"
+                                                                    >
+                                                                        Sửa
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => confirmDelete(r.id)}
+                                                                    className="px-2 py-1 text-xs font-medium bg-rose-50 hover:bg-rose-100 text-rose-600 rounded ml-auto"
+                                                                >
+                                                                    Xoá
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -1485,7 +1994,16 @@ ${change > 0 ? "" : ""}
                                                             <div className="flex items-center justify-between">
                                                                 <div className="flex-1">
                                                                     <div className="font-medium">{s.name}</div>
-                                                                    <div className="text-xs text-slate-500 mt-0.5">Giá/h: {Number(s.price_per_hour || 0).toLocaleString()}đ • Vào: {s.startTime ? new Date(s.startTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
+                                                                    <div className="text-xs text-slate-500 mt-0.5">
+                                                                        Giá/h: {Number(s.price_per_hour || 0).toLocaleString()}đ
+                                                                    </div>
+                                                                    {s.sessionsDisplay && s.sessionsDisplay.length > 0 && (
+                                                                        <div className="text-xs text-slate-600 mt-1 font-mono">
+                                                                            {s.sessionsDisplay.map((session, idx) => (
+                                                                                <div key={idx}>{session}</div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                                 <button disabled={currentOrderDetail?.paymentStatus === "Đã thanh toán"} onClick={() => removeStaffFromOrder(s.id)} className="text-rose-500 hover:text-rose-700 font-bold disabled:text-slate-300 disabled:cursor-not-allowed ml-2">×</button>
                                                             </div>
@@ -1496,10 +2014,10 @@ ${change > 0 ? "" : ""}
                                                                         <span className="font-semibold text-slate-700">{s.money.toLocaleString()}đ</span>
                                                                     </div>
                                                                     <button
-                                                                        onClick={() => toggleStaffPause(s.id)}
-                                                                        className={s.isPaused ? btnSuccess : btnNeutral}
+                                                                        onClick={() => endStaffSession(s.id)}
+                                                                        className={btnDanger}
                                                                     >
-                                                                        {s.isPaused ? "▶ Tiếp tục tính giờ tiếp viên" : "⏸ Dừng tính giờ tiếp viên"}
+                                                                        🚪 Rời phòng
                                                                     </button>
                                                                 </div>
                                                             )}
@@ -1818,7 +2336,7 @@ ${change > 0 ? "" : ""}
 
                     {showOrderModal && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-5xl max-h-[95vh] overflow-auto">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-7xl max-h-[95vh] overflow-auto">
                                 {/* Header */}
                                 <div className="sticky top-0 px-8 py-6 border-b bg-slate-50 flex justify-between items-center">
                                     <div>
@@ -2248,6 +2766,155 @@ ${change > 0 ? "" : ""}
                                         Đóng
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ════════════════════════════════════════════════════════════ */}
+                    {/* COMPLETED ORDER DETAIL MODAL */}
+                    {/* ════════════════════════════════════════════════════════════ */}
+                    {showOrderCompletedModal && selectedOrder && (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+                                {/* Header modal */}
+                                <div className="px-8 py-5 border-b flex items-center justify-between bg-slate-50">
+                                    <div>
+                                        <h2 className="text-2xl font-bold">Chi tiết Order: {selectedOrder.orderCode}</h2>
+                                        <p className="text-slate-500">{selectedOrder.roomName || `Phòng ${selectedOrder.roomId}`}</p>
+                                    </div>
+                                    <button onClick={closeOrderCompletedModal} className="text-3xl leading-none text-slate-400 hover:text-slate-600">×</button>
+                                </div>
+
+                                <div className="flex-1 p-8 overflow-auto">
+                                    {/* Nội dung modal chi tiết order - chỉ xem */}
+                                    <div className="grid grid-cols-2 gap-8">
+                                        {/* Cột trái: Hàng hoá */}
+                                        <div>
+                                            <h3 className="font-semibold mb-3">Hàng hoá</h3>
+                                            <div className="space-y-2 mb-6">
+                                                {tempProducts.length === 0 ? (
+                                                    <div className="text-slate-400 text-sm">Không có hàng hoá</div>
+                                                ) : tempProducts.map(item => (
+                                                    <div key={item.id} className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl">
+                                                        <div>
+                                                            <span className="font-medium">{item.name}</span>
+                                                            <span className="ml-3 text-emerald-600">× {item.quantity}</span>
+                                                        </div>
+                                                        <div className="text-slate-600 font-semibold">
+                                                            {(Number(item.price) * (item.quantity || 1)).toLocaleString()}đ
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Cột phải: Tiếp viên */}
+                                        <div>
+                                            <h3 className="font-semibold mb-3">Tiếp viên</h3>
+                                            {tempStaffs.length === 0 ? (
+                                                <div className="text-slate-400 text-sm mb-6">Chưa có tiếp viên nào</div>
+                                            ) : (
+                                                <div className="space-y-3 mb-6">
+                                                    {tempStaffs.map(s => (
+                                                        <div key={s.id} className="bg-slate-100 px-4 py-3 rounded-2xl flex items-center justify-between">
+                                                            <div className="flex-1">
+                                                                <div className="font-medium">{s.name}</div>
+                                                                <div className="text-xs text-slate-500 mt-1">Giá/h: {Number(s.price_per_hour || 0).toLocaleString()}đ</div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Tổng kết */}
+                                    <div className="mt-10 bg-slate-50 p-6 rounded-3xl">
+                                        <div className="flex justify-between text-lg">
+                                            <span>Tổng hàng hoá:</span>
+                                            <span className="font-semibold">{calcForCompleted.prodTotal.toLocaleString()} đ</span>
+                                        </div>
+                                        <div className="flex justify-between text-lg mt-2">
+                                            <span>Tổng tiếp viên ({tempStaffs.length} người):</span>
+                                            <span className="font-semibold">{calcForCompleted.staffTotal.toLocaleString()} đ</span>
+                                        </div>
+                                        {selectedOrder?.paymentStatus === "Chưa thanh toán" && (
+                                            <div className="flex justify-between text-lg mt-2 text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                                                <span>Tiền phòng ({estimatedCalcForCompleted.estimatedDuration}h - ước tính):</span>
+                                                <span className="font-semibold">{calcForCompleted.roomTotal.toLocaleString()} đ</span>
+                                            </div>
+                                        )}
+                                        {selectedOrder?.paymentStatus === "Đã thanh toán" && (
+                                            <>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Tiền phòng ({selectedOrder?.duration}h):</span>
+                                                    <span className="font-semibold">{(selectedOrder?.roomTotal || 0).toLocaleString()} đ</span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Bắt đầu:</span>
+                                                    <span className="font-semibold">{selectedOrder?.startTime ? new Date(selectedOrder.startTime).toLocaleString('vi-VN') : ''}</span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Kết thúc:</span>
+                                                    <span className="font-semibold">{selectedOrder?.endTime ? new Date(selectedOrder.endTime).toLocaleString('vi-VN') : ''}</span>
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="flex justify-between text-3xl font-bold mt-6 border-t pt-6">
+                                            <span>Tổng thanh toán:</span>
+                                            <span className="text-emerald-600">{calcForCompleted.grandTotal.toLocaleString()} đ</span>
+                                        </div>
+
+                                        {/* Thông tin thanh toán - chỉ xem */}
+                                        <div className="mt-6 grid grid-cols-2 gap-6">
+                                            <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3">
+                                                <div className="text-xs text-slate-500 mb-1">Thanh toán ngân hàng</div>
+                                                <div className="font-semibold text-slate-800">{Number(selectedOrder?.bankPayment || 0).toLocaleString()} đ</div>
+                                            </div>
+                                            <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3">
+                                                <div className="text-xs text-slate-500 mb-1">Thanh toán tiền mặt</div>
+                                                <div className="font-semibold text-slate-800">{Number(selectedOrder?.cashPayment || 0).toLocaleString()} đ</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer modal */}
+                                <div className="border-t p-6 flex gap-4 bg-slate-50">
+                                    <button
+                                        onClick={closeOrderCompletedModal}
+                                        className="flex-1 py-4 border border-slate-300 font-medium rounded-2xl hover:bg-slate-100"
+                                    >
+                                        Đóng
+                                    </button>
+                                    <button
+                                        onClick={deleteOrderFromCompleted}
+                                        className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl transition-colors"
+                                    >
+                                        🗑 Xoá Order
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Notification Popup */}
+                    {notification && (
+                        <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-right-4 duration-300">
+                            <div className={`rounded-3xl shadow-2xl p-6 max-w-md text-white flex items-start gap-4 ${notification.type === "warning" ? "bg-amber-500" : "bg-emerald-500"}`}>
+                                <div className="text-2xl mt-1">
+                                    {notification.type === "warning" ? "⏰" : "✓"}
+                                </div>
+                                <div className="flex-1">
+                                    <div className="font-bold text-lg">{notification.title}</div>
+                                    <div className="text-sm opacity-95">{notification.message}</div>
+                                </div>
+                                <button
+                                    onClick={() => setNotification(null)}
+                                    className="text-white/70 hover:text-white text-xl mt-0.5 flex-shrink-0"
+                                >
+                                    ×
+                                </button>
                             </div>
                         </div>
                     )}

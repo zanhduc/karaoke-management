@@ -134,6 +134,37 @@ function trimVal(val) {
   return val != null ? String(val).trim() : "";
 }
 
+function toSafeISOString(value, fallback) {
+  if (value === null || value === undefined || value === "") {
+    return fallback !== undefined ? fallback : "";
+  }
+
+  var date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) {
+    return fallback !== undefined ? fallback : "";
+  }
+
+  return date.toISOString();
+}
+
+function stringifyForClient(payload) {
+  return JSON.stringify(payload == null ? null : payload);
+}
+
+function parseJsonArraySafe(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  if (typeof value === "string") {
+    try {
+      var parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
 function getSheet(sheetName, createIfNotExist) {
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName(sheetName);
@@ -209,6 +240,64 @@ function readAccountsFromSheet() {
     });
   }
   return rows;
+}
+
+function updateOrderWithStaffSync(orderCode, updatedData) {
+  if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
+
+  try {
+    var sheet = getOrderSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+        var roomId = data[i][ORDER_COL.ROOM_ID - 1];
+        var currentStaffs = parseJsonArraySafe(data[i][ORDER_COL.STAFFS - 1]);
+        var nextStaffs = parseJsonArraySafe(updatedData.staffs);
+
+        updateOrder(orderCode, updatedData);
+
+        var currentStaffIds = {};
+        for (var c = 0; c < currentStaffs.length; c++) {
+          if (currentStaffs[c] && currentStaffs[c].id) {
+            currentStaffIds[String(currentStaffs[c].id)] = true;
+          }
+        }
+
+        var nextStaffIds = {};
+        for (var n = 0; n < nextStaffs.length; n++) {
+          if (nextStaffs[n] && nextStaffs[n].id) {
+            nextStaffIds[String(nextStaffs[n].id)] = true;
+          }
+        }
+
+        for (var currentId in currentStaffIds) {
+          if (!nextStaffIds[currentId]) {
+            releaseStaff(currentId);
+          }
+        }
+
+        for (var nextId in nextStaffIds) {
+          if (!currentStaffIds[nextId]) {
+            assignStaffToRoom(nextId, roomId);
+          }
+        }
+
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw new Error("Không tìm thấy hoá đơn: " + orderCode);
+    }
+
+    return { success: true, message: "Cập nhật hoá đơn thành công" };
+  } catch (e) {
+    auditLog("Cập nhật hoá đơn + staff sync " + orderCode, "FAIL", e.message || e);
+    throw e;
+  }
 }
 
 /**
@@ -750,9 +839,7 @@ function getRoomById(roomId) {
         type: row[ROOM_COL.TYPE - 1],
         price_per_hour: Number(row[ROOM_COL.PRICE - 1]) || 0,
         status: String(row[ROOM_COL.STATUS - 1] || "available").toLowerCase(),
-        start_time: row[ROOM_COL.START_TIME - 1]
-          ? new Date(row[ROOM_COL.START_TIME - 1]).toISOString()
-          : null,
+        start_time: toSafeISOString(row[ROOM_COL.START_TIME - 1], null),
         current_order_id: row[ROOM_COL.CURRENT_ORDER_ID - 1] || "",
       };
     }
@@ -772,9 +859,7 @@ function getRooms() {
       type: row[ROOM_COL.TYPE - 1],
       price_per_hour: Number(row[ROOM_COL.PRICE - 1]) || 0,
       status: String(row[ROOM_COL.STATUS - 1] || "available").toLowerCase(),
-      start_time: row[ROOM_COL.START_TIME - 1]
-        ? new Date(row[ROOM_COL.START_TIME - 1]).toISOString()
-        : null,
+      start_time: toSafeISOString(row[ROOM_COL.START_TIME - 1], null),
       current_order_id: row[ROOM_COL.CURRENT_ORDER_ID - 1] || "",
     });
   }
@@ -1414,7 +1499,13 @@ function getOrders(limit = 50, roomMap = null) {
     var result = [];
 
     for (var i = lastRow; i >= 2; i--) {
+      if (result.length >= limit) break;
       var row = data[i - 1];
+      var orderCode = trimVal(row[ORDER_COL.ORDER_CODE - 1]);
+
+      if (!orderCode) {
+        continue;
+      }
 
       // Parse JSON strings for products and staffs
       var productsData = row[ORDER_COL.PRODUCTS - 1];
@@ -1449,15 +1540,11 @@ function getOrders(limit = 50, roomMap = null) {
       }
 
       result.push({
-        orderCode: row[ORDER_COL.ORDER_CODE - 1],
+        orderCode: orderCode,
         orderName: row[ORDER_COL.ORDER_NAME - 1],
         customerName: row[ORDER_COL.CUSTOMER - 1],
-        startTime: row[ORDER_COL.START_TIME - 1]
-          ? new Date(row[ORDER_COL.START_TIME - 1]).toISOString()
-          : "",
-        endTime: row[ORDER_COL.END_TIME - 1]
-          ? new Date(row[ORDER_COL.END_TIME - 1]).toISOString()
-          : "",
+        startTime: toSafeISOString(row[ORDER_COL.START_TIME - 1], ""),
+        endTime: toSafeISOString(row[ORDER_COL.END_TIME - 1], ""),
         duration: row[ORDER_COL.DURATION - 1],
         serviceTotal: row[ORDER_COL.SERVICE_TOTAL - 1],
         roomTotal: row[ORDER_COL.ROOM_TOTAL - 1],
@@ -1475,21 +1562,21 @@ function getOrders(limit = 50, roomMap = null) {
         cashPayment: row[ORDER_COL.CASH_PAYMENT - 1],
         paymentStatus: row[ORDER_COL.PAYMENT_STATUS - 1],
         note: row[ORDER_COL.NOTE - 1],
-        createdAt: row[ORDER_COL.CREATED_AT - 1]
-          ? new Date(row[ORDER_COL.CREATED_AT - 1]).toISOString()
-          : "",
+        createdAt: toSafeISOString(row[ORDER_COL.CREATED_AT - 1], ""),
       });
-
-      if (result.length >= limit) break;
     }
 
-    Logger.log("getOrders: Returning " + result.length + " orders");
+    Logger.log("✅ getOrders returning " + result.length + " orders");
     return result;
   } catch (e) {
-    Logger.log("ERROR in getOrders: " + e.message);
+    Logger.log("❌ ERROR in getOrders: " + e.message);
     auditLog("getOrders error", "FAIL", e.message);
     return [];
   }
+}
+
+function getOrdersJson(limit) {
+  return stringifyForClient(getOrders(limit));
 }
 
 /**
@@ -1545,12 +1632,8 @@ function getOrderByCode(orderCode) {
           orderCode: row[ORDER_COL.ORDER_CODE - 1],
           orderName: row[ORDER_COL.ORDER_NAME - 1],
           customerName: row[ORDER_COL.CUSTOMER - 1],
-          startTime: row[ORDER_COL.START_TIME - 1]
-            ? new Date(row[ORDER_COL.START_TIME - 1]).toISOString()
-            : "",
-          endTime: row[ORDER_COL.END_TIME - 1]
-            ? new Date(row[ORDER_COL.END_TIME - 1]).toISOString()
-            : "",
+          startTime: toSafeISOString(row[ORDER_COL.START_TIME - 1], ""),
+          endTime: toSafeISOString(row[ORDER_COL.END_TIME - 1], ""),
           duration: row[ORDER_COL.DURATION - 1],
           serviceTotal: row[ORDER_COL.SERVICE_TOTAL - 1],
           roomTotal: row[ORDER_COL.ROOM_TOTAL - 1],
@@ -1565,9 +1648,7 @@ function getOrderByCode(orderCode) {
           cashPayment: row[ORDER_COL.CASH_PAYMENT - 1],
           paymentStatus: row[ORDER_COL.PAYMENT_STATUS - 1],
           note: row[ORDER_COL.NOTE - 1],
-          createdAt: row[ORDER_COL.CREATED_AT - 1]
-            ? new Date(row[ORDER_COL.CREATED_AT - 1]).toISOString()
-            : "",
+          createdAt: toSafeISOString(row[ORDER_COL.CREATED_AT - 1], ""),
         };
       }
     }
@@ -1579,6 +1660,10 @@ function getOrderByCode(orderCode) {
     auditLog("getOrderByCode error", "FAIL", e.message);
     return null;
   }
+}
+
+function getOrderByCodeJson(orderCode) {
+  return stringifyForClient(getOrderByCode(orderCode));
 }
 
 /**
@@ -2051,6 +2136,10 @@ function getUnifiedRoomData() {
   }
 }
 
+function getUnifiedRoomDataJson() {
+  return stringifyForClient(getUnifiedRoomData());
+}
+
 /**
  * Lấy dữ liệu rút gọn (chỉ Room và Order) - dùng cho refresh nhanh
  * TỐI ƯU: Chỉ load 2 sheet thay vì 5 sheets
@@ -2077,6 +2166,10 @@ function getRoomAndOrderData() {
       orders: [],
     };
   }
+}
+
+function getRoomAndOrderDataJson() {
+  return stringifyForClient(getRoomAndOrderData());
 }
 
 // ============ ROUTES ============
