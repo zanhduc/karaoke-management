@@ -2,7 +2,7 @@
     (function () {
         const { useEffect, useMemo, useState, useRef, useCallback } = React;
         const ROOM_ORDER_BUILD = "2026-04-19-json-flow-v2";
-        const noop = () => {};
+        const noop = () => { };
         noop("[ROOM_ORDER_BUILD]", ROOM_ORDER_BUILD);
 
         // ═════════════════════════════════════════════════════════════════════
@@ -127,6 +127,7 @@
                 pauseStartedAt: staff?.pauseStartedAt || null,
                 pausedByRoomTimer: Boolean(staff?.pausedByRoomTimer),
                 totalPausedMs: Number(staff?.totalPausedMs || 0),
+                isLeft: Boolean(staff?.isLeft),
             };
         }
         function sanitizeStaffsData(rawStaffs) {
@@ -1383,8 +1384,28 @@
                 const existingStaff = tempStaffs.find(
                     (s) => String(s.id) === String(staff.id),
                 );
-                if (existingStaff) {
-                    // Tiếp viên đã có (kể cả đã rời): thêm session mới, bỏ isLeft
+                if (existingStaff && !existingStaff.isLeft) {
+                    // ✅ CASE 1: Tiếp viên đã có nhưng CHƯA rời (pause/resume)
+                    // → Nối session mới vào bản ghi cũ
+                    setTempStaffs((prev) =>
+                        prev.map((s) =>
+                            String(s.id) === String(staff.id)
+                                ? {
+                                    ...s,
+                                    sessions: [
+                                        ...(s.sessions || []),
+                                        { startTime: now, endTime: null },
+                                    ],
+                                    isPaused: false,
+                                    endTime: null,
+                                }
+                                : s,
+                        ),
+                    );
+                } else if (existingStaff && existingStaff.isLeft) {
+                    // ✅ CASE 2: Tiếp viên đã rời (isLeft=true)
+                    // → Mở lại bản ghi cũ (KHÔNG xoá), thêm session mới
+                    // → Vẫn giữ lại dữ liệu session cũ để tính tiền
                     setTempStaffs((prev) =>
                         prev.map((s) =>
                             String(s.id) === String(staff.id)
@@ -1395,13 +1416,15 @@
                                         { startTime: now, endTime: null },
                                     ],
                                     isLeft: false,
+                                    isPaused: false,
                                     endTime: null,
                                 }
                                 : s,
                         ),
                     );
                 } else {
-                    // Tiếp viên hoàn toàn mới
+                    // ✅ CASE 3: Tiếp viên hoàn toàn mới
+                    // → Tạo record mới
                     setTempStaffs((prev) => [
                         ...prev,
                         {
@@ -1409,6 +1432,7 @@
                             startTime: now,
                             sessions: [{ startTime: now, endTime: null }],
                             isLeft: false,
+                            isPaused: false,
                             endTime: null,
                         },
                     ]);
@@ -1424,7 +1448,9 @@
             };
 
             const availableStaffsForOrder = useMemo(() => {
-                // Hiển thị toàn bộ tiếp viên, chỉ loại trừ người đang có mặt trong order hiện tại
+                // Hiển thị tiếp viên có thể chọn:
+                // - Loại trừ tiếp viên đang có mặt (isLeft=false)
+                // - Cho phép chọn lại tiếp viên đã rời (isLeft=true)
                 const busyIds = new Set(
                     tempStaffs.filter((s) => !s.isLeft).map((s) => String(s.id)),
                 );
@@ -1570,12 +1596,12 @@
                         const sessions = [...(s.sessions || [])];
                         const lastIdx = sessions.length - 1;
                         if (isCurrentlyPaused) {
-                            if (lastIdx < 0 || sessions[lastIdx]?.endTime) {
-                                sessions.push({ startTime: now, endTime: null });
-                            } else {
+                            // Resume: Xoá endTime để tiếp tục session hiện tại
+                            // ✅ KHÔNG tạo session mới, chỉ xoá dấu "tạm dừng"
+                            if (lastIdx >= 0 && sessions[lastIdx]?.endTime) {
                                 sessions[lastIdx] = {
                                     ...sessions[lastIdx],
-                                    startTime: now,
+                                    endTime: null,
                                 };
                             }
                             return {
@@ -1587,6 +1613,7 @@
                                 sessions,
                             };
                         }
+                        // Pause: Đóng session hiện tại bằng cách set endTime
                         if (lastIdx >= 0 && !sessions[lastIdx]?.endTime) {
                             sessions[lastIdx] = {
                                 ...sessions[lastIdx],
@@ -1914,49 +1941,49 @@
                 // 3. GỌI SERVER CHẠY NGẦM VÀ XẾP HÀNG (Sửa lỗi mất tiền và cập nhật Giờ Vào)
                 if (!RoomServer.isLocal) {
                     // 3. GỌI SERVER CHẠY NGẦM VÀ XẾP HÀNG
-                        google.script.run
-                            .withSuccessHandler(() => {
-                                // Lưu chi tiết thành công -> tiếp tục chốt thanh toán
-                                google.script.run
-                                    .withSuccessHandler(() => {
-                                        setSuccess(
-                                            `Đã chốt xong đơn ${currentOrderDetail.orderCode}. Bạn có thể In Bill hoặc Hoàn thành đơn.`,
-                                        );
-                                        setTimeout(() => setSuccess(""), 4000);
-                                    })
-                                    .withFailureHandler((err) => {
-                                        // Nếu markOrderAsPaid lỗi -> rollback UI
-                                        setError("Lỗi chốt thanh toán Server: " + err);
-                                        // Rollback: đặt lại trạng thái cũ của order và phòng
-                                        setOrders(orders); // orders cũ trước khi optimistic update
-                                        setCurrentOrderDetail(originalOrder); // cần lưu bản gốc trước đó
-                                    })
-                                    .markOrderAsPaid(currentOrderDetail.orderCode, {
-                                        bankPayment,
-                                        cashPayment,
-                                        paymentStatus: "Đã thanh toán",
-                                        endTime: billingEndIso,
-                                        duration: paidOrder.duration,
-                                        roomTotal: paidOrder.roomTotal,
-                                        grandTotal: paidOrder.grandTotal,
-                                        serviceTotal: paidOrder.serviceTotal,
-                                        startTime: paidOrder.startTime,
-                                        totalPausedMs,
-                                        products: paidOrder.products,
-                                        staffs: paidOrder.staffs,
-                                        note: paidOrder.note,
-                                    });
-                            })
-                            .withFailureHandler((err) => {
-                                // Lỗi ở updateOrderWithStaffSync -> rollback UI
-                                setError("Lưu chi tiết đơn thất bại: " + err.message);
-                                setOrders(orders);
-                                setCurrentOrderDetail(originalOrder);
-                            })
-                            .updateOrderWithStaffSync(
-                                currentOrderDetail.orderCode,
-                                paidOrder,
-                            );
+                    google.script.run
+                        .withSuccessHandler(() => {
+                            // Lưu chi tiết thành công -> tiếp tục chốt thanh toán
+                            google.script.run
+                                .withSuccessHandler(() => {
+                                    setSuccess(
+                                        `Đã chốt xong đơn ${currentOrderDetail.orderCode}. Bạn có thể In Bill hoặc Hoàn thành đơn.`,
+                                    );
+                                    setTimeout(() => setSuccess(""), 4000);
+                                })
+                                .withFailureHandler((err) => {
+                                    // Nếu markOrderAsPaid lỗi -> rollback UI
+                                    setError("Lỗi chốt thanh toán Server: " + err);
+                                    // Rollback: đặt lại trạng thái cũ của order và phòng
+                                    setOrders(orders); // orders cũ trước khi optimistic update
+                                    setCurrentOrderDetail(originalOrder); // cần lưu bản gốc trước đó
+                                })
+                                .markOrderAsPaid(currentOrderDetail.orderCode, {
+                                    bankPayment,
+                                    cashPayment,
+                                    paymentStatus: "Đã thanh toán",
+                                    endTime: billingEndIso,
+                                    duration: paidOrder.duration,
+                                    roomTotal: paidOrder.roomTotal,
+                                    grandTotal: paidOrder.grandTotal,
+                                    serviceTotal: paidOrder.serviceTotal,
+                                    startTime: paidOrder.startTime,
+                                    totalPausedMs,
+                                    products: paidOrder.products,
+                                    staffs: paidOrder.staffs,
+                                    note: paidOrder.note,
+                                });
+                        })
+                        .withFailureHandler((err) => {
+                            // Lỗi ở updateOrderWithStaffSync -> rollback UI
+                            setError("Lưu chi tiết đơn thất bại: " + err.message);
+                            setOrders(orders);
+                            setCurrentOrderDetail(originalOrder);
+                        })
+                        .updateOrderWithStaffSync(
+                            currentOrderDetail.orderCode,
+                            paidOrder,
+                        );
                 } else {
                     setTimeout(() => setSuccess(""), 3000);
                 }
@@ -2275,7 +2302,7 @@
                         : estimatedCalcForCompleted.estimatedRoomTotal;
                 const calcEndTime =
                     selectedOrder?.paymentStatus === "Đã thanh toán" &&
-                    selectedOrder.endTime
+                        selectedOrder.endTime
                         ? selectedOrder.endTime
                         : new Date();
                 const staffBreakdown = buildStaffChargeBreakdown(
@@ -3582,4 +3609,3 @@
         };
     })();
 </script>
-
