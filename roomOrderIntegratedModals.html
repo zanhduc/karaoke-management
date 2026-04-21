@@ -2,7 +2,7 @@
     (function () {
         window.RoomOrderIntegratedModals = window.RoomOrderIntegratedModals || {};
         const modalUi = window.RoomOrderIntegratedModals;
-        const noop = () => {};
+        const noop = () => { };
         function useModalPage(page) {
             return page || {};
         }
@@ -253,12 +253,12 @@
                                                                                         />
                                                                                         <span
                                                                                             className={`text-[10px] w-full sm:w-auto sm:ml-1 pl-9 sm:pl-0 ${sess.startTime &&
-                                                                                                    !isSameDay(
-                                                                                                        sess.startTime,
-                                                                                                        currentOrderDetail?.startTime,
-                                                                                                    )
-                                                                                                    ? "text-slate-400"
-                                                                                                    : "text-transparent select-none"
+                                                                                                !isSameDay(
+                                                                                                    sess.startTime,
+                                                                                                    currentOrderDetail?.startTime,
+                                                                                                )
+                                                                                                ? "text-slate-400"
+                                                                                                : "text-transparent select-none"
                                                                                                 }`}
                                                                                         >
                                                                                             {sess.startTime &&
@@ -302,12 +302,12 @@
                                                                                         />
                                                                                         <span
                                                                                             className={`text-[10px] w-full sm:w-auto sm:ml-1 pl-9 sm:pl-0 ${sess.endTime &&
-                                                                                                    !isSameDay(
-                                                                                                        sess.endTime,
-                                                                                                        sess.startTime,
-                                                                                                    )
-                                                                                                    ? "text-slate-400"
-                                                                                                    : "text-transparent select-none"
+                                                                                                !isSameDay(
+                                                                                                    sess.endTime,
+                                                                                                    sess.startTime,
+                                                                                                )
+                                                                                                ? "text-slate-400"
+                                                                                                : "text-transparent select-none"
                                                                                                 }`}
                                                                                         >
                                                                                             {sess.endTime &&
@@ -1145,8 +1145,8 @@
                                                                             key={p.id}
                                                                             onClick={() => setPickProductId(p.id)}
                                                                             className={`w-full text-left px-4 py-3 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50 transition-colors ${idx === products.length - 1
-                                                                                    ? "border-b-0"
-                                                                                    : ""
+                                                                                ? "border-b-0"
+                                                                                : ""
                                                                                 } ${String(pickProductId) === String(p.id) ? "bg-slate-100" : ""}`}
                                                                         >
                                                                             <span className="text-sm font-medium text-slate-800">
@@ -1197,7 +1197,7 @@
                                                                     </button>
                                                                 </div>
                                                                 <button
-                                                                    onClick={addProduct}
+                                                                    onClick={addProductToCurrentOrder}
                                                                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg"
                                                                 >
                                                                     ✓ Thêm
@@ -1451,8 +1451,8 @@
                                                     setShowStaffModal(false);
                                                 }}
                                                 className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${orderStaffs.find((s) => s.id === staff.id)
-                                                        ? "bg-purple-100 border-purple-300"
-                                                        : "bg-white border-slate-200 hover:bg-slate-50"
+                                                    ? "bg-purple-100 border-purple-300"
+                                                    : "bg-white border-slate-200 hover:bg-slate-50"
                                                     }`}
                                             >
                                                 <div className="font-semibold text-slate-800">
