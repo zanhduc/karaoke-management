@@ -1,0 +1,2060 @@
+<script type="text/babel">
+    (function () {
+        window.RoomOrderIntegratedModals = window.RoomOrderIntegratedModals || {};
+        const modalUi = window.RoomOrderIntegratedModals;
+        const noop = () => {};
+        function useModalPage(page) {
+            return page || {};
+        }
+        modalUi.ActiveOrderDetailModal = function ActiveOrderDetailModal({ page }) {
+            const {
+                showOrderDetailModal,
+                selectedRoomDetail,
+                currentOrderDetail,
+                closeOrderDetailModal,
+                tempProducts,
+                updateProductQty,
+                removeProductFromOrder,
+                setPickProductQtyForOrder,
+                setPickProductForOrder,
+                setProductSearchAdd,
+                setShowAddProductToOrderModal,
+                tempStaffs,
+                orderDetailCalc,
+                formatTimeForInput,
+                updateStaffSessionTime,
+                isSameDay,
+                formatDateShortVi,
+                removeStaffFromOrder,
+                toggleStaffPause,
+                btnSuccess,
+                btnNeutral,
+                btnDanger,
+                btnPrimary,
+                endStaffSession,
+                setShowAddStaffToOrderModal,
+                estimatedCalc,
+                formatForDateTimeLocal,
+                setCurrentOrderDetail,
+                togglePauseTime,
+                isPausedTime,
+                pausedTimeMs,
+                saveOrderChanges,
+                printInvoice,
+                handlePrintInvoice,
+                setTempStaffs,
+                finalizePaidOrder,
+                RoomServer,
+                orders,
+                setOrders,
+                rooms,
+                setRooms,
+                saveUnifiedCache,
+                products,
+                staffs,
+                setSuccess,
+                setError,
+                deleteOrder,
+                openQrModal,
+                setCashConfirmAmount,
+                setShowCashConfirm,
+                setTempBankPayment,
+                setTempCashPayment,
+                tempBankPayment,
+                tempCashPayment,
+            } = useModalPage(page);
+            return (
+                <>
+                    {showOrderDetailModal && selectedRoomDetail && currentOrderDetail && (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+                                {/* Header modal */}
+                                <div className="px-8 py-5 border-b flex items-center justify-between bg-slate-50">
+                                    <div>
+                                        <h2 className="text-2xl font-bold">
+                                            Chi tiết Phòng: {selectedRoomDetail?.name}
+                                        </h2>
+                                    </div>
+                                    <button
+                                        onClick={closeOrderDetailModal}
+                                        className="text-3xl leading-none text-slate-400 hover:text-slate-600"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 p-8 overflow-auto mb-6">
+                                    {/* Nội dung modal chi tiết order */}
+                                    <div className="grid grid-cols-2 gap-8 mb-6">
+                                        {/* Cột trái */}
+                                        <div className="flex flex-col">
+                                            <h3 className="font-semibold mb-3">Hàng hoá</h3>
+                                            <div className="space-y-2 mb-4 min-h-[72px]">
+                                                {tempProducts.map((item) => (
+                                                    <div
+                                                        key={item.id}
+                                                        className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl"
+                                                    >
+                                                        <div>
+                                                            <span className="font-medium">{item.name}</span>
+                                                            <span className="ml-3 text-emerald-600">
+                                                                × {item.quantity}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-3">
+                                                            <button
+                                                                disabled={
+                                                                    currentOrderDetail?.paymentStatus ===
+                                                                    "Đã thanh toán"
+                                                                }
+                                                                onClick={() =>
+                                                                    updateProductQty(item.id, item.quantity - 1)
+                                                                }
+                                                                className="w-7 h-7 border rounded-lg text-sm font-bold disabled:bg-slate-100 disabled:cursor-not-allowed"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <input
+                                                                type="number"
+                                                                min="1"
+                                                                step="1"
+                                                                inputMode="numeric"
+                                                                disabled={
+                                                                    currentOrderDetail?.paymentStatus ===
+                                                                    "Đã thanh toán"
+                                                                }
+                                                                value={item.quantity}
+                                                                onFocus={(e) => e.target.select()}
+                                                                onChange={(e) => {
+                                                                    const rawValue = e.target.value;
+                                                                    const nextQty = Number(rawValue);
+                                                                    if (
+                                                                        rawValue === "" ||
+                                                                        !Number.isFinite(nextQty) ||
+                                                                        nextQty < 1
+                                                                    ) {
+                                                                        return;
+                                                                    }
+                                                                    updateProductQty(
+                                                                        item.id,
+                                                                        Math.floor(nextQty),
+                                                                    );
+                                                                }}
+                                                                className="w-16 text-center border rounded-lg px-2 py-1 text-sm font-medium disabled:bg-slate-100 disabled:cursor-not-allowed"
+                                                            />
+                                                            <button
+                                                                disabled={
+                                                                    currentOrderDetail?.paymentStatus ===
+                                                                    "Đã thanh toán"
+                                                                }
+                                                                onClick={() =>
+                                                                    updateProductQty(item.id, item.quantity + 1)
+                                                                }
+                                                                className="w-7 h-7 border rounded-lg text-sm font-bold disabled:bg-slate-100 disabled:cursor-not-allowed"
+                                                            >
+                                                                +
+                                                            </button>
+                                                            <button
+                                                                disabled={
+                                                                    currentOrderDetail?.paymentStatus ===
+                                                                    "Đã thanh toán"
+                                                                }
+                                                                onClick={() => removeProductFromOrder(item.id)}
+                                                                className="text-rose-500 text-sm font-bold disabled:text-slate-300 disabled:cursor-not-allowed"
+                                                            >
+                                                                Xoá
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <h3 className="font-semibold mb-3 mt-auto">
+                                                Thêm hàng hoá
+                                            </h3>
+                                            <button
+                                                disabled={
+                                                    currentOrderDetail?.paymentStatus === "Đã thanh toán"
+                                                }
+                                                onClick={() => {
+                                                    setPickProductQtyForOrder(1);
+                                                    setPickProductForOrder(null);
+                                                    setProductSearchAdd("");
+                                                    setShowAddProductToOrderModal(true);
+                                                }}
+                                                className={`w-full ${btnNeutral}`}
+                                            >
+                                                + Thêm hàng hoá
+                                            </button>
+                                        </div>
+
+                                        {/* Cột phải */}
+                                        <div className="flex flex-col">
+                                            <h3 className="font-semibold mb-3">Tiếp viên</h3>
+                                            {tempStaffs.length === 0 ? (
+                                                <div className="text-slate-400 text-sm mb-4 min-h-[72px]">
+                                                    Chưa có tiếp viên nào
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-3 mb-4 min-h-[72px]">
+                                                    {orderDetailCalc.staffBreakdown.map((s) => (
+                                                        <div
+                                                            key={s.id + "-" + (s.isLeft ? "left" : "active")}
+                                                            className={`px-4 py-3 rounded-2xl ${s.isLeft ? "bg-slate-200 opacity-80" : "bg-slate-100"}`}
+                                                        >
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="font-medium">
+                                                                            {s.name}
+                                                                        </span>
+                                                                        {s.isLeft && (
+                                                                            <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-medium">
+                                                                                Đã rời
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-xs text-slate-500 mt-0.5">
+                                                                        Giá/h:{" "}
+                                                                        {Number(
+                                                                            s.price_per_hour || 0,
+                                                                        ).toLocaleString()}
+                                                                        đ
+                                                                    </div>
+                                                                    {s.sessions && s.sessions.length > 0 ? (
+                                                                        <div className="text-xs text-slate-600 mt-2 space-y-2">
+                                                                            {s.sessions.map((sess, idx) => (
+                                                                                <div
+                                                                                    key={idx}
+                                                                                    className="grid grid-cols-1 md:grid-cols-2 p-1.5 bg-white/50 rounded gap-2 border border-slate-200"
+                                                                                >
+                                                                                    <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                                                                        <span className="text-slate-500 font-semibold w-8 shrink-0">
+                                                                                            Vào:
+                                                                                        </span>
+                                                                                        <input
+                                                                                            type="time"
+                                                                                            className="border border-slate-300 shadow-sm rounded px-1.5 py-0.5 w-full sm:w-[145px] max-w-[170px] text-xs font-sans text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                                                                            value={formatTimeForInput(
+                                                                                                sess.startTime,
+                                                                                            )}
+                                                                                            onChange={(e) =>
+                                                                                                updateStaffSessionTime(
+                                                                                                    s.id,
+                                                                                                    idx,
+                                                                                                    "startTime",
+                                                                                                    e.target.value,
+                                                                                                )
+                                                                                            }
+                                                                                            disabled={
+                                                                                                currentOrderDetail?.paymentStatus ===
+                                                                                                "Đã thanh toán"
+                                                                                            }
+                                                                                        />
+                                                                                        <span
+                                                                                            className={`text-[10px] w-full sm:w-auto sm:ml-1 pl-9 sm:pl-0 ${sess.startTime &&
+                                                                                                    !isSameDay(
+                                                                                                        sess.startTime,
+                                                                                                        currentOrderDetail?.startTime,
+                                                                                                    )
+                                                                                                    ? "text-slate-400"
+                                                                                                    : "text-transparent select-none"
+                                                                                                }`}
+                                                                                        >
+                                                                                            {sess.startTime &&
+                                                                                                !isSameDay(
+                                                                                                    sess.startTime,
+                                                                                                    currentOrderDetail?.startTime,
+                                                                                                )
+                                                                                                ? formatDateShortVi(
+                                                                                                    sess.startTime,
+                                                                                                )
+                                                                                                : "00/00/0000"}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="flex flex-wrap items-center gap-1 min-w-0">
+                                                                                        <span className="text-slate-500 font-semibold w-8 shrink-0">
+                                                                                            Ra:
+                                                                                        </span>
+                                                                                        <input
+                                                                                            type="time"
+                                                                                            className="border border-slate-300 shadow-sm rounded px-1.5 py-0.5 w-full sm:w-[145px] max-w-[170px] text-xs font-sans text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                                                                            value={
+                                                                                                sess.endTime
+                                                                                                    ? formatTimeForInput(
+                                                                                                        sess.endTime,
+                                                                                                    )
+                                                                                                    : ""
+                                                                                            }
+                                                                                            onChange={(e) =>
+                                                                                                updateStaffSessionTime(
+                                                                                                    s.id,
+                                                                                                    idx,
+                                                                                                    "endTime",
+                                                                                                    e.target.value,
+                                                                                                )
+                                                                                            }
+                                                                                            disabled={
+                                                                                                currentOrderDetail?.paymentStatus ===
+                                                                                                "Đã thanh toán" ||
+                                                                                                (!sess.endTime && !s.isLeft)
+                                                                                            }
+                                                                                        />
+                                                                                        <span
+                                                                                            className={`text-[10px] w-full sm:w-auto sm:ml-1 pl-9 sm:pl-0 ${sess.endTime &&
+                                                                                                    !isSameDay(
+                                                                                                        sess.endTime,
+                                                                                                        sess.startTime,
+                                                                                                    )
+                                                                                                    ? "text-slate-400"
+                                                                                                    : "text-transparent select-none"
+                                                                                                }`}
+                                                                                        >
+                                                                                            {sess.endTime &&
+                                                                                                !isSameDay(
+                                                                                                    sess.endTime,
+                                                                                                    sess.startTime,
+                                                                                                )
+                                                                                                ? formatDateShortVi(
+                                                                                                    sess.endTime,
+                                                                                                )
+                                                                                                : "00/00/0000"}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        s.sessionsDisplay &&
+                                                                        s.sessionsDisplay.length > 0 && (
+                                                                            <div className="text-xs text-slate-600 mt-1 font-mono space-y-0.5">
+                                                                                {s.sessionsDisplay.map(
+                                                                                    (session, idx) => (
+                                                                                        <div
+                                                                                            key={idx}
+                                                                                            className="flex items-center gap-1"
+                                                                                        >
+                                                                                            <span className="text-slate-400">
+                                                                                                •
+                                                                                            </span>
+                                                                                            <span>{session}</span>
+                                                                                        </div>
+                                                                                    ),
+                                                                                )}
+                                                                            </div>
+                                                                        )
+                                                                    )}
+                                                                </div>
+                                                                <button
+                                                                    disabled={
+                                                                        currentOrderDetail?.paymentStatus ===
+                                                                        "Đã thanh toán"
+                                                                    }
+                                                                    onClick={() => removeStaffFromOrder(s.id)}
+                                                                    className="text-rose-500 hover:text-rose-700 font-bold disabled:text-slate-300 disabled:cursor-not-allowed ml-2"
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            </div>
+                                                            {currentOrderDetail?.paymentStatus !==
+                                                                "Đã thanh toán" && (
+                                                                    <div className="mt-2 space-y-2">
+                                                                        <div className="flex justify-between text-xs bg-white rounded-xl px-3 py-1.5">
+                                                                            <span className="text-slate-500">
+                                                                                ⏱ {s.durationLabel}
+                                                                            </span>
+                                                                            <span className="font-semibold text-slate-700">
+                                                                                {s.money.toLocaleString()}đ
+                                                                            </span>
+                                                                        </div>
+                                                                        {!s.isLeft && (
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                                <button
+                                                                                    onClick={() => toggleStaffPause(s.id)}
+                                                                                    className={
+                                                                                        s.isPaused ? btnSuccess : btnNeutral
+                                                                                    }
+                                                                                >
+                                                                                    {s.isPaused
+                                                                                        ? "▶ Tiếp tục tiếp viên"
+                                                                                        : "⏸ Dừng tiếp viên"}
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => endStaffSession(s.id)}
+                                                                                    className={btnDanger}
+                                                                                >
+                                                                                    🚪 Rời phòng
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            <h3 className="font-semibold mb-3 mt-auto">
+                                                Thêm tiếp viên
+                                            </h3>
+                                            <button
+                                                disabled={
+                                                    currentOrderDetail?.paymentStatus === "Đã thanh toán"
+                                                }
+                                                onClick={() => setShowAddStaffToOrderModal(true)}
+                                                className={`w-full ${btnNeutral}`}
+                                            >
+                                                + Thêm tiếp viên
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Thời gian sử dụng */}
+                                    {currentOrderDetail?.paymentStatus === "Chưa thanh toán" &&
+                                        currentOrderDetail?.startTime && (
+                                            <div className="mb-4 mx-auto max-w-md text-center p-2.5 bg-slate-800 rounded-xl text-white">
+                                                <div className="text-[11px] text-slate-300 mb-1.5 tracking-wide">
+                                                    THỜI GIAN SỬ DỤNG
+                                                </div>
+                                                <div className="text-3xl font-mono font-bold">
+                                                    {estimatedCalc.estimatedDuration}
+                                                </div>
+                                                <div className="mt-2 flex flex-col sm:flex-row gap-2 items-center justify-center">
+                                                    <div className="flex items-center gap-1.5 bg-slate-900/50 px-2 py-1 rounded">
+                                                        <span className="text-xs text-slate-400 font-medium whitespace-nowrap">
+                                                            Vào:
+                                                        </span>
+                                                        <input
+                                                            type="datetime-local"
+                                                            style={{ colorScheme: "dark" }}
+                                                            className="bg-transparent border-none outline-none text-white text-xs font-sans w-[140px] p-0 focus:ring-0 cursor-pointer"
+                                                            value={formatForDateTimeLocal(
+                                                                currentOrderDetail.startTime,
+                                                            )}
+                                                            onChange={(e) => {
+                                                                if (e.target.value) {
+                                                                    setCurrentOrderDetail((prev) => ({
+                                                                        ...prev,
+                                                                        startTime: new Date(
+                                                                            e.target.value,
+                                                                        ).toISOString(),
+                                                                    }));
+                                                                }
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 bg-slate-900/50 px-2 py-1 rounded">
+                                                        <span className="text-xs text-slate-400 font-medium whitespace-nowrap">
+                                                            Ra:
+                                                        </span>
+                                                        <input
+                                                            type="datetime-local"
+                                                            style={{ colorScheme: "dark" }}
+                                                            className="bg-transparent border-none outline-none text-white text-xs font-sans w-[140px] p-0 focus:ring-0 cursor-pointer"
+                                                            value={
+                                                                currentOrderDetail.endTime
+                                                                    ? formatForDateTimeLocal(
+                                                                        currentOrderDetail.endTime,
+                                                                    )
+                                                                    : ""
+                                                            }
+                                                            onChange={(e) => {
+                                                                const newVal = e.target.value
+                                                                    ? new Date(e.target.value).toISOString()
+                                                                    : null;
+                                                                setCurrentOrderDetail((prev) => ({
+                                                                    ...prev,
+                                                                    endTime: newVal,
+                                                                }));
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="mt-2.5 flex gap-2">
+                                                    <button
+                                                        onClick={togglePauseTime}
+                                                        className={`flex-1 ${isPausedTime ? btnSuccess : btnNeutral}`}
+                                                    >
+                                                        {isPausedTime
+                                                            ? "▶ Tiếp tục tính giờ"
+                                                            : "⏸ Dừng tính giờ"}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                    {/* Tổng kết & Thanh toán */}
+                                    <div className="mt-6 bg-slate-50 p-4 rounded-2xl">
+                                        {/* Bảng tổng kết chi tiết khi dừng tính giờ hoặc đang chạy */}
+                                        {currentOrderDetail?.paymentStatus ===
+                                            "Chưa thanh toán" && (
+                                                <div className="mb-6 rounded-2xl overflow-hidden border border-slate-200">
+                                                    {/* Tiêu đề */}
+                                                    <div className="bg-slate-800 text-white px-5 py-3 flex items-center gap-2">
+                                                        <span className="text-sm font-bold">
+                                                            📋 CHI TIẾT THANH TOÁN{" "}
+                                                            {isPausedTime ? "(ĐÃ CHỐT GIỜ)" : "(ĐANG TÍNH)"}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Đồ ăn */}
+                                                    <div className="bg-white px-5 py-3 border-b border-slate-100">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-sm font-semibold text-slate-700">
+                                                                🍺 Đồ ăn / Hàng hoá
+                                                            </span>
+                                                            <span className="font-bold text-emerald-600">
+                                                                {orderDetailCalc.prodTotal.toLocaleString()}đ
+                                                            </span>
+                                                        </div>
+                                                        {tempProducts.length > 0 && (
+                                                            <div className="mt-1.5 space-y-0.5">
+                                                                {tempProducts.map((p) => (
+                                                                    <div
+                                                                        key={p.id}
+                                                                        className="flex justify-between text-xs text-slate-500 px-2"
+                                                                    >
+                                                                        <span>
+                                                                            {p.name} × {p.quantity}
+                                                                        </span>
+                                                                        <span>
+                                                                            {(
+                                                                                Number(p.price) * (p.quantity || 1)
+                                                                            ).toLocaleString()}
+                                                                            đ
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Phòng */}
+                                                    <div className="bg-slate-100 px-5 py-3 border-b border-slate-200">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-sm font-semibold text-slate-700">
+                                                                🏠 Tiền phòng ({estimatedCalc.estimatedDuration})
+                                                            </span>
+                                                            <span className="font-bold text-slate-700">
+                                                                {orderDetailCalc.roomTotal.toLocaleString()}đ
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-xs text-slate-500 mt-1">
+                                                            {currentOrderDetail?.startTime
+                                                                ? new Date(
+                                                                    currentOrderDetail.startTime,
+                                                                ).toLocaleTimeString("vi-VN", {
+                                                                    hour: "2-digit",
+                                                                    minute: "2-digit",
+                                                                })
+                                                                : ""}
+                                                            {" → "}
+                                                            {isPausedTime
+                                                                ? new Date(pausedTimeMs).toLocaleTimeString(
+                                                                    "vi-VN",
+                                                                    { hour: "2-digit", minute: "2-digit" },
+                                                                )
+                                                                : "Hiện tại"}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Từng tiếp viên - tính tiền riêng từng đợt */}
+                                                    {orderDetailCalc.staffBreakdown.length > 0 && (
+                                                        <div className="bg-slate-100 px-5 py-3 border-b border-slate-200">
+                                                            <div className="text-sm font-semibold text-slate-700 mb-2">
+                                                                👥 Tiếp viên
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                {orderDetailCalc.staffBreakdown.map((s) =>
+                                                                    (s.sessionsData && s.sessionsData.length > 0
+                                                                        ? s.sessionsData
+                                                                        : [{ display: "—", money: s.money }]
+                                                                    ).map((sd, idx) => (
+                                                                        <div
+                                                                            key={s.id + "-" + idx}
+                                                                            className="flex justify-between items-center bg-white rounded-xl px-3 py-2"
+                                                                        >
+                                                                            <div>
+                                                                                <div className="text-sm font-medium text-slate-800">
+                                                                                    {s.name}
+                                                                                </div>
+                                                                                <div className="text-xs text-slate-400 font-mono">
+                                                                                    {sd.display}
+                                                                                </div>
+                                                                            </div>
+                                                                            <span className="font-bold text-slate-700">
+                                                                                {sd.money.toLocaleString()}đ
+                                                                            </span>
+                                                                        </div>
+                                                                    )),
+                                                                )}
+                                                            </div>
+                                                            <div className="flex justify-between text-sm font-semibold text-slate-700 mt-2 pt-2 border-t border-purple-200">
+                                                                <span>Tổng tiếp viên:</span>
+                                                                <span>
+                                                                    {orderDetailCalc.staffTotal.toLocaleString()}đ
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Tổng cộng */}
+                                                    <div className="bg-slate-900 px-5 py-4">
+                                                        <div className="flex justify-between items-center text-white">
+                                                            <span className="text-base font-bold">
+                                                                💰 TỔNG THANH TOÁN
+                                                            </span>
+                                                            <span className="text-2xl font-extrabold">
+                                                                {orderDetailCalc.grandTotal.toLocaleString()}đ
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                        {/* Trường hợp đã thanh toán */}
+                                        {currentOrderDetail?.paymentStatus === "Đã thanh toán" && (
+                                            <>
+                                                <div className="flex justify-between text-lg">
+                                                    <span>Tổng hàng hoá:</span>
+                                                    <span className="font-semibold">
+                                                        {orderDetailCalc.prodTotal.toLocaleString()} đ
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>
+                                                        Tổng tiếp viên ({tempStaffs.length} người):
+                                                    </span>
+                                                    <span className="font-semibold">
+                                                        {orderDetailCalc.staffTotal.toLocaleString()} đ
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>
+                                                        Tiền phòng ({currentOrderDetail?.duration}h):
+                                                    </span>
+                                                    <span className="font-semibold">
+                                                        {(
+                                                            currentOrderDetail?.roomTotal || 0
+                                                        ).toLocaleString()}{" "}
+                                                        đ
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Bắt đầu:</span>
+                                                    <span className="font-semibold">
+                                                        {currentOrderDetail?.startTime
+                                                            ? new Date(
+                                                                currentOrderDetail.startTime,
+                                                            ).toLocaleString("vi-VN")
+                                                            : ""}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-lg mt-2">
+                                                    <span>Kết thúc:</span>
+                                                    <span className="font-semibold">
+                                                        {currentOrderDetail?.endTime
+                                                            ? new Date(
+                                                                currentOrderDetail.endTime,
+                                                            ).toLocaleString("vi-VN")
+                                                            : ""}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between text-3xl font-bold mt-6 border-t pt-6">
+                                                    <span>Tổng thanh toán:</span>
+                                                    <span className="text-emerald-600">
+                                                        {orderDetailCalc.grandTotal.toLocaleString()} đ
+                                                    </span>
+                                                </div>
+                                            </>
+                                        )}
+
+                                        <div className="mt-6 space-y-4">
+                                            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                                                <div className="text-sm font-semibold text-slate-700 mb-3">
+                                                    Phương thức thanh toán
+                                                </div>
+                                                {currentOrderDetail?.paymentStatus !==
+                                                    "Đã thanh toán" ? (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <button
+                                                            onClick={() => {
+                                                                setTempBankPayment(orderDetailCalc.grandTotal);
+                                                                setTempCashPayment(0);
+                                                                openQrModal(orderDetailCalc.grandTotal);
+                                                            }}
+                                                            className={`w-full ${btnPrimary}`}
+                                                        >
+                                                            💳 Thanh toán QR
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setCashConfirmAmount(
+                                                                    orderDetailCalc.grandTotal,
+                                                                );
+                                                                setShowCashConfirm(true);
+                                                            }}
+                                                            className={`w-full ${btnSuccess}`}
+                                                        >
+                                                            💵 Thanh toán tiền mặt
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-sm text-slate-600">
+                                                        Đã thanh toán:{" "}
+                                                        <span className="font-semibold">
+                                                            {Number(tempBankPayment || 0).toLocaleString(
+                                                                "vi-VN",
+                                                            )}
+                                                            đ
+                                                        </span>{" "}
+                                                        chuyển khoản,{" "}
+                                                        <span className="font-semibold">
+                                                            {Number(tempCashPayment || 0).toLocaleString(
+                                                                "vi-VN",
+                                                            )}
+                                                            đ
+                                                        </span>{" "}
+                                                        tiền mặt
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Tóm tắt còn thiếu / thừa */}
+                                            {/* {currentOrderDetail?.paymentStatus !== "Đã thanh toán" &&
+                          (() => {
+                            const paid = tempBankPayment + tempCashPayment;
+                            const diff = paid - orderDetailCalc.grandTotal;
+                            if (paid === 0) return null;
+                            return (
+                              <div
+                                className={`flex justify-between items-center px-4 py-2.5 rounded-xl text-sm font-medium ${diff >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}
+                              >
+                                <span>
+                                  {diff >= 0 ? "✅ Tiền thừa:" : "⚠️ Còn thiếu:"}
+                                </span>
+                                <span className="font-bold">
+                                  {Math.abs(diff).toLocaleString("vi-VN")}đ
+                                </span>
+                              </div>
+                            );
+                          })()}*/}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer modal */}
+                                <div className="border-t p-6 bg-slate-50">
+                                    {currentOrderDetail?.paymentStatus !== "Đã thanh toán" ? (
+                                        <div className="flex flex-col sm:flex-row gap-3">
+                                            <button
+                                                onClick={() => handlePrintInvoice(true)}
+                                                className={`sm:w-auto ${btnNeutral}`}
+                                            >
+                                                🖨️ In Bill
+                                            </button>
+                                            <button
+                                                onClick={saveOrderChanges}
+                                                className={`flex-1 ${btnNeutral}`}
+                                            >
+                                                💾 Lưu thay đổi
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col sm:flex-row gap-3">
+                                            <button
+                                                onClick={() => handlePrintInvoice(false)}
+                                                className={`sm:w-auto ${btnNeutral}`}
+                                            >
+                                                🖨️ In Bill
+                                            </button>
+                                            <div className="flex-1 py-3 text-center text-emerald-600 font-semibold rounded-2xl bg-emerald-50 text-sm">
+                                                ✅ Đã chốt thanh toán
+                                            </div>
+                                            <button
+                                                onClick={finalizePaidOrder}
+                                                className={`flex-1 ${btnPrimary}`}
+                                            >
+                                                ✅ Hoàn thành đơn
+                                            </button>
+                                            <button
+                                                onClick={async () => {
+                                                    if (
+                                                        !window.confirm(
+                                                            "Mở lại phòng? Đơn hàng sẽ được đặt về trạng thái chưa thanh toán.",
+                                                        )
+                                                    )
+                                                        return;
+                                                    try {
+                                                        const reopenedOrder = {
+                                                            ...currentOrderDetail,
+                                                            paymentStatus: "Chưa thanh toán",
+                                                            endTime: new Date(
+                                                                Date.now() + 2 * 3600000,
+                                                            ).toISOString(),
+                                                        };
+                                                        if (!RoomServer.isLocal) {
+                                                            await new Promise((res, rej) =>
+                                                                google.script.run
+                                                                    .withSuccessHandler(res)
+                                                                    .withFailureHandler(rej)
+                                                                    .updateOrderWithStaffSync(
+                                                                        currentOrderDetail.orderCode,
+                                                                        reopenedOrder,
+                                                                    ),
+                                                            );
+                                                        }
+                                                        const updatedOrders = orders.map((o) =>
+                                                            o.orderCode === currentOrderDetail.orderCode
+                                                                ? reopenedOrder
+                                                                : o,
+                                                        );
+                                                        const updatedRooms = rooms.map((r) =>
+                                                            String(r.current_order_id) ===
+                                                                String(currentOrderDetail.orderCode)
+                                                                ? { ...r, status: "occupied" }
+                                                                : r,
+                                                        );
+                                                        setOrders(updatedOrders);
+                                                        setRooms(updatedRooms);
+                                                        setCurrentOrderDetail(reopenedOrder);
+                                                        saveUnifiedCache({
+                                                            rooms: updatedRooms,
+                                                            orders: updatedOrders,
+                                                            products,
+                                                            staffs,
+                                                        });
+                                                        setSuccess("Đã mở lại phòng thành công!");
+                                                        setTimeout(() => setSuccess(""), 3000);
+                                                    } catch (e) {
+                                                        setError(
+                                                            "Mở lại phòng thất bại: " + (e.message || e),
+                                                        );
+                                                    }
+                                                }}
+                                                className={`sm:w-auto ${btnNeutral}`}
+                                            >
+                                                ↩ Mở lại phòng
+                                            </button>
+                                            <button
+                                                onClick={deleteOrder}
+                                                className={`flex-1 ${btnDanger}`}
+                                            >
+                                                🗑️ Xoá đơn
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+        modalUi.PaymentModals = function PaymentModals({ page }) {
+            const {
+                showQrModal,
+                setShowQrModal,
+                QR_BANK_NAME,
+                QR_ACCOUNT,
+                buildQrUrl,
+                qrAmount,
+                currentOrderDetail,
+                QR_BANK_ID,
+                setQrAmount,
+                orderDetailCalc,
+                completePayment,
+                showCashConfirm,
+                setShowCashConfirm,
+                cashConfirmAmount,
+                togglePauseTime,
+                isPausedTime,
+            } = useModalPage(page);
+            return (
+                <>
+                    {/* QR CHUYỂN KHOẢN MODAL */}
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    {showQrModal && (
+                        <div className="fixed inset-0 bg-slate-900/55 flex items-center justify-center z-[60] p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-sm overflow-hidden">
+                                {/* Header */}
+                                <div className="bg-slate-800 px-6 py-4 flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-white font-bold text-lg">
+                                            📷 QR Chuyển khoản
+                                        </h3>
+                                        <p className="text-slate-300 text-xs mt-0.5">
+                                            {QR_BANK_NAME} — TK: {QR_ACCOUNT}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowQrModal(false)}
+                                        className="text-white/70 hover:text-white text-2xl leading-none"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                {/* QR Image */}
+                                <div className="flex flex-col items-center px-6 py-5">
+                                    <div className="bg-white border-4 border-blue-100 rounded-2xl p-2 shadow-inner mb-4">
+                                        <img
+                                            src={buildQrUrl(
+                                                qrAmount,
+                                                `Thanh toan ${currentOrderDetail?.orderCode || ""}`,
+                                            )}
+                                            alt="QR chuyển khoản"
+                                            className="w-52 h-52 object-contain rounded-xl"
+                                            onError={(e) => {
+                                                e.target.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`${QR_BANK_ID}|${QR_ACCOUNT}|${qrAmount}|Thanh toan karaoke`)}`;
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* Số tiền */}
+                                    <div className="text-center mb-4">
+                                        <div className="text-2xl font-extrabold text-blue-700">
+                                            {qrAmount.toLocaleString("vi-VN")}đ
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-0.5">
+                                            Nội dung: Thanh toan{" "}
+                                            {currentOrderDetail?.orderCode || "karaoke"}
+                                        </div>
+                                    </div>
+
+                                    {/* Chỉnh số tiền QR */}
+                                    <div className="w-full bg-slate-50 rounded-2xl p-4 space-y-3">
+                                        <label className="text-xs font-semibold text-slate-600 block">
+                                            Điều chỉnh số tiền QR:
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="number"
+                                                value={qrAmount}
+                                                onChange={(e) => setQrAmount(Number(e.target.value))}
+                                                className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                                            />
+                                            <button
+                                                onClick={() => setQrAmount(orderDetailCalc.grandTotal)}
+                                                className="px-3 py-2 bg-blue-600 text-white text-xs rounded-xl hover:bg-blue-700 font-medium whitespace-nowrap"
+                                            >
+                                                Tổng bill
+                                            </button>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            {[50000, 100000, 200000, 500000].map((v) => (
+                                                <button
+                                                    key={v}
+                                                    onClick={() => setQrAmount(v)}
+                                                    className="flex-1 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-100 font-medium"
+                                                >
+                                                    {v / 1000}k
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer */}
+                                <div className="border-t px-6 py-4 flex gap-3 bg-slate-50">
+                                    <button
+                                        onClick={() =>
+                                            completePayment(
+                                                { bankPayment: qrAmount, cashPayment: 0 },
+                                                { closeQrAfter: true, pauseBeforeComplete: true },
+                                            )
+                                        }
+                                        className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl text-sm"
+                                    >
+                                        ✓ Xác nhận đã nhận {qrAmount.toLocaleString("vi-VN")}đ
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    {/* TIỀN MẶT CONFIRM MODAL */}
+                    {/* ═══════════════════════════════════════════════════════════ */}
+                    {showCashConfirm && (
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[70] p-4">
+                            <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95 duration-200">
+                                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">
+                                    💵
+                                </div>
+                                <h3 className="text-xl font-bold mb-2 text-slate-800">
+                                    Thanh toán tiền mặt
+                                </h3>
+                                <p className="text-slate-500 mb-4 text-sm">
+                                    Xác nhận thu tiền mặt từ khách hàng cho đơn{" "}
+                                    <b>{currentOrderDetail?.orderCode}</b>:
+                                </p>
+                                <div className="text-3xl font-extrabold text-emerald-600 mb-6">
+                                    {cashConfirmAmount.toLocaleString("vi-VN")}đ
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowCashConfirm(false)}
+                                        className="flex-1 py-3 border border-slate-300 rounded-xl font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                        Huỷ
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowCashConfirm(false);
+                                            completePayment({
+                                                bankPayment: 0,
+                                                cashPayment: cashConfirmAmount,
+                                            }, { pauseBeforeComplete: true });
+                                        }}
+                                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold shadow-lg shadow-emerald-600/30"
+                                    >
+                                        Xác nhận thu
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+        modalUi.OrderCreationModals = function OrderCreationModals({ page }) {
+            const {
+                showOrderModal,
+                availableRooms,
+                selectedRoomIdForOrder,
+                setSelectedRoomIdForOrder,
+                orderStartTime,
+                setOrderStartTime,
+                setOrderStaffs,
+                formatForDateTimeLocal,
+                products,
+                productSearchCreate,
+                setProductSearchCreate,
+                pickProductId,
+                setPickProductId,
+                pickQty,
+                setPickQty,
+                fmt,
+                orderItems,
+                removeItem,
+                updateItemQty,
+                orderCalc,
+                orderStaffs,
+                setShowStaffModal,
+                removeStaff,
+                note,
+                setNote,
+                isSubmittingOrder,
+                closeOrderModal,
+                handleCreateOrder,
+                showStaffModal,
+                availableStaffs,
+                showAddProductToOrderModal,
+                setShowAddProductToOrderModal,
+                productSearchAdd,
+                setProductSearchAdd,
+                pickProductForOrder,
+                pickProductQtyForOrder,
+                setPickProductForOrder,
+                setPickProductQtyForOrder,
+                addProductToCurrentOrder,
+                showAddStaffToOrderModal,
+                setShowAddStaffToOrderModal,
+                availableStaffsForOrder,
+                addStaffToCurrentOrder,
+            } = useModalPage(page);
+            return (
+                <>
+                    {/* ═════════════════════════════════════════════════════════════════════ */}
+                    {/* ORDER CREATION MODAL */}
+                    {/* ═════════════════════════════════════════════════════════════════════ */}
+
+                    {showOrderModal && (
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-7xl max-h-[95vh] overflow-auto">
+                                {/* Header */}
+                                <div className="sticky top-0 px-8 py-6 border-b bg-slate-50 flex justify-between items-center">
+                                    <div>
+                                        <h2 className="text-3xl font-bold text-slate-800">
+                                            Soạn đơn hàng
+                                        </h2>
+                                        <p className="text-slate-600 mt-1">
+                                            Tạo hoá đơn dịch vụ karaoke
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={closeOrderModal}
+                                        className="text-3xl text-slate-400 hover:text-slate-600"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                {/* Content */}
+                                <div className="p-8">
+                                    {/* Main Grid Layout - Products & Customer/Staff */}
+                                    <div className="grid grid-cols-3 gap-6 mb-6">
+                                        {/* Column 1: Products */}
+                                        <div className="col-span-2">
+                                            {/* Hàng hoá / đồ uống */}
+                                            <div className="space-y-3">
+                                                <h3 className="font-semibold text-slate-800">
+                                                    📦 Hàng hoá / đồ uống
+                                                </h3>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        placeholder="🔍 Tìm kiếm hàng hoá..."
+                                                        value={productSearchCreate}
+                                                        onChange={(e) =>
+                                                            setProductSearchCreate(e.target.value)
+                                                        }
+                                                        className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-white"
+                                                    />
+                                                    {productSearchCreate && (
+                                                        <button
+                                                            onClick={() => setProductSearchCreate("")}
+                                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {products.length === 0 ? (
+                                                    <p className="text-sm text-slate-400 text-center py-6">
+                                                        Không có sản phẩm
+                                                    </p>
+                                                ) : (
+                                                    <>
+                                                        <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                                                            <div className="max-h-64 overflow-y-auto">
+                                                                {products
+                                                                    .filter(
+                                                                        (p) =>
+                                                                            !productSearchCreate ||
+                                                                            p.name
+                                                                                .toLowerCase()
+                                                                                .includes(
+                                                                                    productSearchCreate.toLowerCase(),
+                                                                                ),
+                                                                    )
+                                                                    .map((p, idx) => (
+                                                                        <button
+                                                                            key={p.id}
+                                                                            onClick={() => setPickProductId(p.id)}
+                                                                            className={`w-full text-left px-4 py-3 flex items-center justify-between border-b border-slate-100 hover:bg-slate-50 transition-colors ${idx === products.length - 1
+                                                                                    ? "border-b-0"
+                                                                                    : ""
+                                                                                } ${String(pickProductId) === String(p.id) ? "bg-slate-100" : ""}`}
+                                                                        >
+                                                                            <span className="text-sm font-medium text-slate-800">
+                                                                                {p.name}
+                                                                            </span>
+                                                                            <span
+                                                                                className={`text-sm font-semibold ${String(pickProductId) === String(p.id) ? "text-slate-800" : "text-slate-700"}`}
+                                                                            >
+                                                                                {fmt(p.price)}đ
+                                                                            </span>
+                                                                        </button>
+                                                                    ))}
+                                                            </div>
+                                                        </div>
+                                                        {pickProductId && (
+                                                            <div className="flex gap-2 items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
+                                                                <span className="text-sm font-medium text-slate-700 flex-1">
+                                                                    {
+                                                                        products.find(
+                                                                            (p) => String(p.id) === pickProductId,
+                                                                        )?.name
+                                                                    }
+                                                                </span>
+                                                                <div className="flex items-center gap-1">
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            setPickQty(Math.max(1, pickQty - 1))
+                                                                        }
+                                                                        className="w-7 h-7 flex items-center justify-center border border-slate-300 rounded bg-white hover:bg-slate-100 text-sm font-semibold"
+                                                                    >
+                                                                        −
+                                                                    </button>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="1"
+                                                                        value={pickQty}
+                                                                        onChange={(e) => {
+                                                                            const val = e.target.value;
+                                                                            setPickQty(val === "" ? "" : Number(val));
+                                                                        }}
+                                                                        className="w-16 rounded border border-slate-300 px-2 py-1.5 text-sm text-center font-medium bg-white"
+                                                                    />
+                                                                    <button
+                                                                        onClick={() => setPickQty(pickQty + 1)}
+                                                                        className="w-7 h-7 flex items-center justify-center border border-slate-300 rounded bg-white hover:bg-slate-100 text-sm font-semibold"
+                                                                    >
+                                                                        +
+                                                                    </button>
+                                                                </div>
+                                                                <button
+                                                                    onClick={addProduct}
+                                                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg"
+                                                                >
+                                                                    ✓ Thêm
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+
+                                            {/*Danh sách hàng hoá đã chọn */}
+                                            {orderItems.length === 0 ? (
+                                                <p className="text-sm text-slate-400 text-center py-3">
+                                                    Chưa có hàng hoá trong giỏ
+                                                </p>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <h3 className="font-semibold text-slate-800 text-sm">
+                                                        Giỏ hàng ({orderItems.length} mục)
+                                                    </h3>
+                                                    {orderItems.map((item) => (
+                                                        <div
+                                                            key={item.id}
+                                                            className="flex items-center gap-3 p-2 border border-slate-200 rounded-lg bg-slate-50"
+                                                        >
+                                                            <span className="flex-1 text-sm font-medium">
+                                                                {item.name}
+                                                            </span>
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    onClick={() =>
+                                                                        updateItemQty(item.id, item.quantity - 1)
+                                                                    }
+                                                                    className="w-6 h-6 flex items-center justify-center border border-slate-200 rounded text-xs bg-white"
+                                                                >
+                                                                    −
+                                                                </button>
+                                                                <span className="w-8 text-center text-sm font-medium">
+                                                                    {item.quantity}
+                                                                </span>
+                                                                <button
+                                                                    onClick={() =>
+                                                                        updateItemQty(item.id, item.quantity + 1)
+                                                                    }
+                                                                    className="w-6 h-6 flex items-center justify-center border border-slate-200 rounded text-xs bg-white"
+                                                                >
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                            <span className="text-sm font-semibold text-emerald-600 w-24 text-right">
+                                                                {fmt(item.price * item.quantity)}đ
+                                                            </span>
+                                                            <button
+                                                                onClick={() => removeItem(item.id)}
+                                                                className="text-rose-500 hover:text-rose-700 text-sm font-bold"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    <div className="flex justify-end pt-2 text-sm font-semibold text-slate-800 bg-slate-100 p-2 rounded">
+                                                        Tổng: {fmt(orderCalc.productTotal)}đ
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Column 2: Customer & Staff */}
+                                        <div className="col-span-1 space-y-6">
+                                            {/* Staff */}
+                                            <div>
+                                                <h3 className="font-semibold text-slate-800 mb-3 text-sm">
+                                                    👥 Tiếp viên
+                                                </h3>
+                                                <button
+                                                    onClick={() => setShowStaffModal(true)}
+                                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left transition-colors text-sm font-medium text-slate-700"
+                                                >
+                                                    + Thêm tiếp viên
+                                                </button>
+                                                {orderStaffs.length === 0 ? (
+                                                    <p className="text-xs text-slate-400 text-center py-3 mt-2">
+                                                        Chưa chọn tiếp viên
+                                                    </p>
+                                                ) : (
+                                                    <div className="space-y-2 mt-2">
+                                                        {orderStaffs.map((staff) => (
+                                                            <div
+                                                                key={staff.id}
+                                                                className="flex items-center gap-2 p-2 border border-slate-200 rounded-lg bg-slate-50"
+                                                            >
+                                                                <span className="flex-1 text-xs font-medium truncate">
+                                                                    {staff.name}
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => removeStaff(staff.id)}
+                                                                    className="text-rose-500 hover:text-rose-700 font-bold text-sm"
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Column 3: Summary - Full Width */}
+                                    <div className="col-span-3">
+                                        <div className="space-y-4">
+                                            {/* Tổng kết */}
+                                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                                                <h3 className="font-bold text-slate-800 text-sm">
+                                                    💰 Tính toán
+                                                </h3>
+                                                <div className="space-y-2 text-xs">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-600">Hàng hoá:</span>
+                                                        <span className="font-semibold text-slate-700">
+                                                            {fmt(orderCalc.productTotal)}đ
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-slate-600">Tiếp viên:</span>
+                                                        <span className="font-semibold text-slate-700">
+                                                            {orderStaffs.length} người
+                                                        </span>
+                                                    </div>
+                                                    {orderCalc.discount > 0 && (
+                                                        <div className="flex justify-between text-rose-600 pt-1 border-t border-slate-200">
+                                                            <span>Giảm:</span>
+                                                            <span className="font-semibold">
+                                                                −{fmt(orderCalc.discount)}đ
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    <div className="pt-2 border-t border-slate-200 flex justify-between text-sm font-bold text-slate-800">
+                                                        <span>Tổng cộng:</span>
+                                                        <span className="text-lg text-slate-900">
+                                                            {fmt(orderCalc.grandTotal)}đ
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Thời gian bắt đầu */}
+                                            <div className="mb-4">
+                                                <label className="text-xs text-slate-600 mb-1 block font-medium">
+                                                    Thời gian mở phòng (Tuỳ chỉnh)
+                                                </label>
+                                                <input
+                                                    type="datetime-local"
+                                                    value={formatForDateTimeLocal(orderStartTime)}
+                                                    onChange={(e) => {
+                                                        if (!e.target.value) return;
+                                                        const nextDate = new Date(e.target.value);
+                                                        if (isNaN(nextDate.getTime())) return;
+                                                        const nextIso = nextDate.toISOString();
+                                                        setOrderStartTime(nextDate);
+                                                        setOrderStaffs((prev) =>
+                                                            prev.map((s) => {
+                                                                const sessions = Array.isArray(s.sessions)
+                                                                    ? [...s.sessions]
+                                                                    : [];
+                                                                if (sessions.length === 0) {
+                                                                    sessions.push({
+                                                                        startTime: nextIso,
+                                                                        endTime: null,
+                                                                    });
+                                                                } else {
+                                                                    sessions[0] = {
+                                                                        ...sessions[0],
+                                                                        startTime: nextIso,
+                                                                    };
+                                                                }
+                                                                return {
+                                                                    ...s,
+                                                                    startTime: nextIso,
+                                                                    sessions,
+                                                                };
+                                                            }),
+                                                        );
+                                                    }}
+                                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:border-indigo-500"
+                                                />
+                                            </div>
+                                            {/* Ghi chú */}
+                                            <div>
+                                                <label className="text-xs text-slate-600 mb-1 block font-medium">
+                                                    Ghi chú
+                                                </label>
+                                                <textarea
+                                                    value={note}
+                                                    onChange={(e) => setNote(e.target.value)}
+                                                    placeholder="Ghi chú thêm..."
+                                                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm h-24"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer */}
+                                <div className="border-t px-8 py-4 flex gap-3 bg-slate-50 sticky bottom-0">
+                                    <button
+                                        onClick={closeOrderModal}
+                                        className="flex-1 py-3 font-medium border border-slate-200 rounded-2xl hover:bg-white"
+                                    >
+                                        Huỷ
+                                    </button>
+                                    <button
+                                        onClick={handleCreateOrder}
+                                        disabled={isSubmittingOrder || !selectedRoomIdForOrder}
+                                        className="flex-1 py-3 font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-2xl"
+                                    >
+                                        {isSubmittingOrder ? "Đang tạo..." : "Tạo hoá đơn"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showStaffModal && (
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-md max-h-[80vh] overflow-auto">
+                                <div className="sticky top-0 px-6 py-6 border-b bg-slate-50 flex justify-between items-center">
+                                    <h2 className="text-2xl font-bold text-slate-800">
+                                        Chọn tiếp viên
+                                    </h2>
+                                    <button
+                                        onClick={() => setShowStaffModal(false)}
+                                        className="text-3xl text-slate-400 hover:text-slate-600"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                <div className="p-6 space-y-2">
+                                    {availableStaffs.length === 0 ? (
+                                        <div className="text-center py-8 text-slate-400">
+                                            Không có tiếp viên khả dụng
+                                        </div>
+                                    ) : (
+                                        availableStaffs.map((staff) => (
+                                            <button
+                                                key={staff.id}
+                                                onClick={() => {
+                                                    if (!orderStaffs.find((s) => s.id === staff.id)) {
+                                                        setOrderStaffs([...orderStaffs, staff]);
+                                                    }
+                                                    setShowStaffModal(false);
+                                                }}
+                                                className={`w-full text-left px-4 py-3 rounded-lg border transition-all ${orderStaffs.find((s) => s.id === staff.id)
+                                                        ? "bg-purple-100 border-purple-300"
+                                                        : "bg-white border-slate-200 hover:bg-slate-50"
+                                                    }`}
+                                            >
+                                                <div className="font-semibold text-slate-800">
+                                                    {staff.name}
+                                                </div>
+                                                <div className="text-xs text-slate-500 mt-1">
+                                                    {fmt(staff.price_per_hour)}đ/giờ
+                                                </div>
+                                            </button>
+                                        ))
+                                    )}
+                                </div>
+                                <div className="border-t px-6 py-4 bg-slate-50">
+                                    <button
+                                        onClick={() => setShowStaffModal(false)}
+                                        className="w-full py-3 font-semibold bg-purple-600 hover:bg-purple-700 text-white rounded-2xl"
+                                    >
+                                        Đóng
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add Product to Order Modal */}
+                    {showAddProductToOrderModal && (
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[70] p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+                                <div className="sticky top-0 z-10 px-6 py-6 border-b bg-slate-50 flex justify-between items-center">
+                                    <h2 className="text-2xl font-bold text-slate-800">
+                                        Thêm hàng hoá
+                                    </h2>
+                                    <button
+                                        onClick={() => setShowAddProductToOrderModal(false)}
+                                        className="text-3xl text-slate-400 hover:text-slate-600"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                <div className="p-6 space-y-3 overflow-y-auto flex-1">
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            placeholder="🔍 Tìm kiếm hàng hoá..."
+                                            value={productSearchAdd}
+                                            onChange={(e) => setProductSearchAdd(e.target.value)}
+                                            className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-white"
+                                        />
+                                        {productSearchAdd && (
+                                            <button
+                                                onClick={() => setProductSearchAdd("")}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm"
+                                            >
+                                                ✕
+                                            </button>
+                                        )}
+                                    </div>
+                                    {products.length === 0 ? (
+                                        <div className="text-center py-8 text-slate-400">
+                                            Không có sản phẩm
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {products
+                                                .filter(
+                                                    (product) =>
+                                                        !productSearchAdd ||
+                                                        product.name
+                                                            .toLowerCase()
+                                                            .includes(productSearchAdd.toLowerCase()),
+                                                )
+                                                .map((product) => (
+                                                    <div
+                                                        key={product.id}
+                                                        className="p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-colors"
+                                                    >
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div>
+                                                                <div className="font-semibold text-slate-800">
+                                                                    {product.name}
+                                                                </div>
+                                                                <div className="text-sm text-slate-500 mt-1">
+                                                                    {fmt(product.price)}đ
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    value={
+                                                                        pickProductForOrder?.id === product.id
+                                                                            ? pickProductQtyForOrder
+                                                                            : 1
+                                                                    }
+                                                                    onChange={(e) => {
+                                                                        setPickProductForOrder(product);
+                                                                        const val = e.target.value;
+                                                                        setPickProductQtyForOrder(
+                                                                            val === "" ? "" : Number(val),
+                                                                        );
+                                                                    }}
+                                                                    className="w-16 rounded-lg border border-slate-200 px-2 py-2 text-center font-medium"
+                                                                />
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const finalQty = Math.max(
+                                                                            1,
+                                                                            Number(pickProductQtyForOrder) || 1,
+                                                                        );
+                                                                        for (let i = 0; i < finalQty; i++) {
+                                                                            addProductToCurrentOrder(product);
+                                                                        }
+                                                                        setShowAddProductToOrderModal(false);
+                                                                        setPickProductForOrder(null);
+                                                                        setPickProductQtyForOrder(1);
+                                                                    }}
+                                                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg"
+                                                                >
+                                                                    ✓ Thêm
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                        </>
+                                    )}
+                                </div>
+                                <div className="border-t px-6 py-4 bg-slate-50">
+                                    <button
+                                        onClick={() => setShowAddProductToOrderModal(false)}
+                                        className="w-full py-3 font-semibold bg-slate-300 hover:bg-slate-400 text-slate-800 rounded-2xl"
+                                    >
+                                        Đóng
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add Staff to Order Modal */}
+                    {showAddStaffToOrderModal && (
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[70] p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+                                <div className="sticky top-0 z-10 px-6 py-6 border-b bg-slate-50 flex justify-between items-center">
+                                    <h2 className="text-2xl font-bold text-slate-800">
+                                        Thêm tiếp viên
+                                    </h2>
+                                    <button
+                                        onClick={() => setShowAddStaffToOrderModal(false)}
+                                        className="text-3xl text-slate-400 hover:text-slate-600"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                <div className="p-6 space-y-3 overflow-y-auto flex-1">
+                                    {availableStaffsForOrder.length === 0 ? (
+                                        <div className="text-center py-8 text-slate-400">
+                                            Tất cả tiếp viên đã được thêm
+                                        </div>
+                                    ) : (
+                                        availableStaffsForOrder.map((staff) => (
+                                            <button
+                                                key={staff.id}
+                                                onClick={() => {
+                                                    addStaffToCurrentOrder(staff);
+                                                    setShowAddStaffToOrderModal(false);
+                                                }}
+                                                className="w-full text-left p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-colors"
+                                            >
+                                                <div className="font-semibold text-slate-800">
+                                                    {staff.name}
+                                                </div>
+                                                <div className="text-sm text-slate-500 mt-1">
+                                                    {fmt(staff.price_per_hour)}đ/giờ
+                                                </div>
+                                                <div className="text-xs text-slate-400 mt-0.5">
+                                                    Trạng thái: {staff.status || "N/A"}
+                                                </div>
+                                            </button>
+                                        ))
+                                    )}
+                                </div>
+                                <div className="border-t px-6 py-4 bg-slate-50">
+                                    <button
+                                        onClick={() => setShowAddStaffToOrderModal(false)}
+                                        className="w-full py-3 font-semibold bg-slate-300 hover:bg-slate-400 text-slate-800 rounded-2xl"
+                                    >
+                                        Đóng
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+        modalUi.CompletedOrderModals = function CompletedOrderModals({ page }) {
+            const {
+                showOrderCompletedModal,
+                selectedOrder,
+                rooms,
+                closeOrderCompletedModal,
+                tempProducts,
+                calcForCompleted,
+                setShowReopenConfirm,
+                printInvoice,
+                deleteOrderFromCompleted,
+                showReopenConfirm,
+                setNotification,
+                orders,
+                setOrders,
+                setRooms,
+                setStaffs,
+                staffs,
+                saveUnifiedCache,
+                products,
+                setSuccess,
+                RoomServer,
+                setError,
+                notification,
+            } = useModalPage(page);
+            return (
+                <>
+                    {/* COMPLETED ORDER DETAIL MODAL */}
+                    {showOrderCompletedModal && selectedOrder && (
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-2 md:p-4">
+                            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-2xl max-h-[95vh] overflow-hidden flex flex-col">
+                                {/* Header */}
+                                <div className="px-6 py-4 border-b flex items-start justify-between bg-gradient-to-r from-slate-800 to-slate-700">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-0.5">
+                                            <h2 className="text-xl font-bold text-white">
+                                                {selectedOrder.orderCode}
+                                            </h2>
+                                            {selectedOrder.paymentStatus === "Đã thanh toán" ? (
+                                                <span className="text-xs bg-emerald-500 text-white px-2 py-0.5 rounded-full font-medium">
+                                                    ✅ Đã thanh toán
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs bg-amber-400 text-slate-900 px-2 py-0.5 rounded-full font-medium">
+                                                    ⏳ Chưa thanh toán
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-slate-300 text-sm">
+                                            {rooms.find(
+                                                (r) => String(r.id) === String(selectedOrder.roomId),
+                                            )?.name ||
+                                                selectedOrder.roomName ||
+                                                `Phòng ${selectedOrder.roomId}`}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={closeOrderCompletedModal}
+                                        className="text-3xl leading-none text-white/60 hover:text-white mt-1"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                {/* Body */}
+                                <div className="flex-1 overflow-auto">
+                                    {/* Thời gian */}
+                                    <div className="grid grid-cols-2 gap-px bg-slate-100">
+                                        <div className="bg-white px-5 py-3">
+                                            <div className="text-xs text-slate-400 mb-0.5">
+                                                Bắt đầu
+                                            </div>
+                                            <div className="text-sm font-semibold text-slate-800">
+                                                {selectedOrder?.startTime
+                                                    ? new Date(selectedOrder.startTime).toLocaleString(
+                                                        "vi-VN",
+                                                    )
+                                                    : "—"}
+                                            </div>
+                                        </div>
+                                        <div className="bg-white px-5 py-3">
+                                            <div className="text-xs text-slate-400 mb-0.5">
+                                                Kết thúc
+                                            </div>
+                                            <div className="text-sm font-semibold text-slate-800">
+                                                {selectedOrder?.endTime
+                                                    ? new Date(selectedOrder.endTime).toLocaleString(
+                                                        "vi-VN",
+                                                    )
+                                                    : "—"}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Hàng hoá */}
+                                    {tempProducts.length > 0 && (
+                                        <div className="px-5 py-4 border-b">
+                                            <div className="text-sm font-semibold text-slate-600 mb-2">
+                                                🛒 Hàng hoá
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                {tempProducts.map((item) => (
+                                                    <div
+                                                        key={item.id}
+                                                        className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2"
+                                                    >
+                                                        <div>
+                                                            <span className="font-medium text-slate-800 text-sm">
+                                                                {item.name}
+                                                            </span>
+                                                            <span className="text-slate-400 text-xs ml-2">
+                                                                × {item.quantity}
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-sm font-semibold text-slate-700">
+                                                            {(
+                                                                Number(item.price) * (item.quantity || 1)
+                                                            ).toLocaleString()}
+                                                            đ
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Tiếp viên (Đã gộp chuẩn Bao phòng) */}
+                                    {calcForCompleted.staffBreakdown.length > 0 && (
+                                        <div className="px-5 py-4 border-b">
+                                            <div className="text-sm font-semibold text-slate-600 mb-2">
+                                                👥 Tiếp viên
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                {calcForCompleted.staffBreakdown.map((s, idx) => (
+                                                    <div
+                                                        key={s.id + "-" + idx}
+                                                        className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2"
+                                                    >
+                                                        <div>
+                                                            <div className="font-medium text-slate-800 text-sm">
+                                                                {s.name}
+                                                            </div>
+                                                            <div className="text-xs text-slate-400 font-mono">
+                                                                {s.displayTime}
+                                                            </div>
+                                                        </div>
+                                                        <span className="text-sm font-semibold text-slate-700">
+                                                            {s.money.toLocaleString()}đ
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Tổng kết */}
+                                    <div className="px-5 py-4 bg-slate-50 border-b space-y-2">
+                                        <div className="flex justify-between text-sm text-slate-600">
+                                            <span>
+                                                🏠 Tiền phòng ({selectedOrder?.duration || "—"}h)
+                                            </span>
+                                            <span className="font-semibold">
+                                                {(
+                                                    selectedOrder?.roomTotal ||
+                                                    calcForCompleted.roomTotal ||
+                                                    0
+                                                ).toLocaleString()}
+                                                đ
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-sm text-slate-600">
+                                            <span>🛒 Tổng hàng hoá</span>
+                                            <span className="font-semibold">
+                                                {calcForCompleted.prodTotal.toLocaleString()}đ
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-sm text-slate-600">
+                                            <span>👥 Tổng tiếp viên</span>
+                                            <span className="font-semibold">
+                                                {calcForCompleted.staffTotal.toLocaleString()}đ
+                                            </span>
+                                        </div>
+
+                                        <div className="flex justify-between text-lg font-bold border-t pt-2 mt-1">
+                                            <span>Tổng thanh toán</span>
+                                            <span className="text-emerald-600">
+                                                {calcForCompleted.grandTotal.toLocaleString()}đ
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Phương thức thanh toán */}
+                                    <div className="px-5 py-4 grid grid-cols-2 gap-3">
+                                        <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
+                                            <div className="text-xs text-blue-400 mb-1">
+                                                💳 Chuyển khoản
+                                            </div>
+                                            <div className="font-bold text-blue-700">
+                                                {Number(
+                                                    selectedOrder?.bankPayment || 0,
+                                                ).toLocaleString()}
+                                                đ
+                                            </div>
+                                        </div>
+                                        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3">
+                                            <div className="text-xs text-emerald-400 mb-1">
+                                                💵 Tiền mặt
+                                            </div>
+                                            <div className="font-bold text-emerald-700">
+                                                {Number(
+                                                    selectedOrder?.cashPayment || 0,
+                                                ).toLocaleString()}
+                                                đ
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer */}
+                                <div className="border-t p-4 flex flex-wrap gap-3 bg-slate-50">
+                                    <button
+                                        onClick={() => setShowReopenConfirm(true)}
+                                        className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-2xl transition-colors text-sm"
+                                    >
+                                        ↩ Đẩy về phòng
+                                    </button>
+                                    <button
+                                        onClick={() =>
+                                            printInvoice(selectedOrder, calcForCompleted)
+                                        }
+                                        className="flex-1 py-3 border border-slate-300 hover:bg-slate-100 font-medium rounded-2xl text-sm"
+                                    >
+                                        🖨️ In hoá đơn
+                                    </button>
+                                    <button
+                                        onClick={deleteOrderFromCompleted}
+                                        className="py-3 px-5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-2xl transition-colors text-sm"
+                                    >
+                                        🗑 Xoá
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Reopen Confirm Popup */}
+                    {showReopenConfirm && selectedOrder && (
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[70] p-4">
+                            <div className="bg-white rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl animate-in fade-in zoom-in-95 duration-200 border-2 border-amber-200">
+                                <div className="w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl shadow-inner">
+                                    ↩
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">
+                                    Đẩy về lại phòng?
+                                </h3>
+                                <p className="text-slate-500 mb-6 text-sm">
+                                    Đơn <b>{selectedOrder.orderCode}</b> sẽ bị Huỷ Thanh Toán và
+                                    chuyển về lại trạng thái đang hoạt động.
+                                </p>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowReopenConfirm(false)}
+                                        className="flex-1 py-3 border border-slate-300 font-medium rounded-xl hover:bg-slate-50 text-slate-700 transition duration-200"
+                                    >
+                                        Huỷ bỏ
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            // 1. Đóng modal xác nhận ngay lập tức cho mượt
+                                            setShowReopenConfirm(false);
+
+                                            const targetRoom = rooms.find(
+                                                (r) => String(r.id) === String(selectedOrder.roomId),
+                                            );
+
+                                            // 2. Kiểm tra lỗi (nếu phòng đang có người khác dùng)
+                                            if (
+                                                targetRoom &&
+                                                targetRoom.status === "occupied" &&
+                                                targetRoom.current_order_id &&
+                                                String(targetRoom.current_order_id) !==
+                                                String(selectedOrder.orderCode)
+                                            ) {
+                                                setNotification({
+                                                    type: "warning",
+                                                    title: "Không thể đẩy về phòng",
+                                                    message: `Phòng đang được sử dụng bởi đơn ${targetRoom.current_order_id}. Vui lòng kết thúc hoặc chuyển đơn đó trước.`,
+                                                    duration: 5000,
+                                                });
+                                                return;
+                                            }
+
+                                            // 3. Chuẩn bị dữ liệu mới
+                                            const reopenedOrder = {
+                                                ...selectedOrder,
+                                                paymentStatus: "Chưa thanh toán",
+                                                endTime: "",
+                                                duration: "",
+                                                roomTotal: 0,
+                                            };
+
+                                            const updatedOrders = orders.map((o) =>
+                                                o.orderCode === selectedOrder.orderCode
+                                                    ? reopenedOrder
+                                                    : o,
+                                            );
+
+                                            const updatedRooms = rooms.map((r) =>
+                                                String(r.id) === String(selectedOrder.roomId)
+                                                    ? {
+                                                        ...r,
+                                                        status: "occupied",
+                                                        current_order_id: selectedOrder.orderCode,
+                                                        start_time: selectedOrder.startTime, // Giữ nguyên giờ gốc
+                                                    }
+                                                    : r,
+                                            );
+
+                                            let updatedStaffs = [...staffs];
+                                            try {
+                                                const orderStaffs = JSON.parse(
+                                                    selectedOrder.staffs || "[]",
+                                                );
+                                                orderStaffs.forEach((os) => {
+                                                    updatedStaffs = updatedStaffs.map((s) =>
+                                                        String(s.id) === String(os.id)
+                                                            ? {
+                                                                ...s,
+                                                                status: "busy",
+                                                                current_roomId: selectedOrder.roomId,
+                                                            }
+                                                            : s,
+                                                    );
+                                                });
+                                            } catch (e) {
+                                                noop(e);
+                                            }
+
+                                            // 4. CẬP NHẬT GIAO DIỆN NGAY LẬP TỨC (Không cần chờ server)
+                                            setOrders(updatedOrders);
+                                            setRooms(updatedRooms);
+                                            setStaffs(updatedStaffs);
+                                            saveUnifiedCache({
+                                                rooms: updatedRooms,
+                                                orders: updatedOrders,
+                                                products,
+                                                staffs: updatedStaffs,
+                                            });
+
+                                            // Tắt popup chi tiết đơn và báo thành công
+                                            closeOrderCompletedModal();
+                                            setSuccess("Đang đẩy về phòng...");
+
+                                            // 5. Gọi Server chạy ngầm dưới nền
+                                            if (!RoomServer.isLocal) {
+                                                google.script.run
+                                                    .withSuccessHandler(() => {
+                                                        setSuccess("Đã mở lại phòng thành công!");
+                                                        setTimeout(() => setSuccess(""), 3000);
+                                                    })
+                                                    .withFailureHandler((err) => {
+                                                        setError(
+                                                            "Lưu server thất bại, vui lòng tải lại trang: " +
+                                                            (err.message || err),
+                                                        );
+                                                    })
+                                                    .reopenOrderAndRoom(selectedOrder.orderCode);
+                                            } else {
+                                                setTimeout(() => setSuccess(""), 3000);
+                                            }
+                                        }}
+                                        className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-xl shadow-lg shadow-amber-500/30 transition duration-200"
+                                    >
+                                        Đồng ý đẩy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Notification Popup */}
+                    {notification && (
+                        <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-right-4 duration-300">
+                            <div
+                                className={`rounded-3xl shadow-2xl p-6 max-w-md text-white flex items-start gap-4 ${notification.type === "warning" ? "bg-amber-500" : "bg-emerald-500"}`}
+                            >
+                                <div className="text-2xl mt-1">
+                                    {notification.type === "warning" ? "⏰" : "✓"}
+                                </div>
+                                <div className="flex-1">
+                                    <div className="font-bold text-lg">{notification.title}</div>
+                                    <div className="text-sm opacity-95">
+                                        {notification.message}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setNotification(null)}
+                                    className="text-white/70 hover:text-white text-xl mt-0.5 flex-shrink-0"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+    })();
+</script>

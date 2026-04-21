@@ -84,8 +84,11 @@
 <body>
   <?!= include('staffComponent'); ?>
   <?!= include('productComponent'); ?>
-  <?!= include('roomOrderIntegratedComponent.html'); ?>
-  <?!= include('dashboardComponent'); ?>
+  <?!= include('roomOrderIntegratedModals.html'); ?>
+  <?!=
+    include('roomOrderIntegratedComponent.html'); ?>
+  <?!=
+    include('dashboardComponent'); ?>
   <?!= include('managerAccount.html'); ?>
   <script type="text/babel">
     // ============ SHARED REACT HOOKS ============
@@ -204,9 +207,9 @@
 
     /* ============ CÁC COMPONENT KHÔNG DÙNG ĐÃ BỊ COMMENT ============ */
     /*
-    window.PremiumDatePicker = function (...) { ... }
-    window.CustomSelect = function (...) { ... }
-    */
+  window.PremiumDatePicker = function (...) { ... }
+  window.CustomSelect = function (...) { ... }
+  */
 
     // ============ LOGIN APP COMPONENT ============
     function LoginApp() {
@@ -360,8 +363,8 @@
 
     /* ============ ĐÃ COMMENT PHẦN CHUYỂN TRANG (MainApp) ============ */
     /*
-    function MainApp() { ... logic chuyển trang ở đây ... }
-    */
+  function MainApp() { ... logic chuyển trang ở đây ... }
+  */
 
     // ============ MAIN APP MẪU (Thay thế tạm thời) ============
     function DummyDashboard() {
@@ -438,7 +441,8 @@
             return (
               <div className="p-4 text-red-600">
                 Lỗi: chưa tải được RoomPage. Kiểm tra file{" "}
-                <code>roomOrderIntegratedComponent.html</code> và include trong index.
+                <code>roomOrderIntegratedComponent.html</code> và include
+                trong index.
               </div>
             );
           }
@@ -488,7 +492,7 @@
 
         { id: "dashboard", label: "📊 Dashboard", roles: ["admin"] },
         { id: "account", label: "🔐 Tài khoản", roles: ["admin"] },
-      ].filter(item => item.roles.includes(user.role));
+      ].filter((item) => item.roles.includes(user.role));
 
       const pageTitles = {
         room: "🏠 Quản lý phòng",
@@ -508,24 +512,31 @@
           />
 
           {/* ===== MOBILE SIDEBAR ===== */}
-          <div className={`mobile-sidebar bg-white shadow-2xl flex flex-col md:hidden ${sidebarOpen ? "open" : ""}`}>
+          <div
+            className={`mobile-sidebar bg-white shadow-2xl flex flex-col md:hidden ${sidebarOpen ? "open" : ""}`}
+          >
             <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
               <div>
                 <h2 className="text-white font-bold text-lg">Quản lý Quán</h2>
-                <p className="text-blue-100 text-xs">{user.name} · {user.role}</p>
+                <p className="text-blue-100 text-xs">
+                  {user.name} · {user.role}
+                </p>
               </div>
-              <button onClick={() => setSidebarOpen(false)} className="text-white/80 hover:text-white p-1">
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="text-white/80 hover:text-white p-1"
+              >
                 <span className="material-icons-round">close</span>
               </button>
             </div>
             <nav className="flex-1 py-2 overflow-y-auto">
-              {navItems.map(item => (
+              {navItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setPageAndUrl(item.id)}
                   className={`w-full text-left px-5 py-3.5 text-sm font-medium transition-colors ${page === item.id
-                    ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600"
-                    : "text-slate-700 hover:bg-slate-50"
+                      ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600"
+                      : "text-slate-700 hover:bg-slate-50"
                     }`}
                 >
                   {item.label}
@@ -553,7 +564,9 @@
               >
                 <span className="material-icons-round">menu</span>
               </button>
-              <h2 className="font-bold text-blue-600 text-base">{pageTitles[page] || "Quản lý Quán"}</h2>
+              <h2 className="font-bold text-blue-600 text-base">
+                {pageTitles[page] || "Quản lý Quán"}
+              </h2>
               <button
                 onClick={logout}
                 className="p-2 rounded-xl hover:bg-red-50 text-red-500"
@@ -569,13 +582,13 @@
                 Quản lý Quán
               </h2>
               <div className="flex gap-1 flex-wrap flex-1">
-                {navItems.map(item => (
+                {navItems.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => setPageAndUrl(item.id)}
                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${page === item.id
-                      ? "bg-blue-100 text-blue-700 font-semibold"
-                      : "hover:bg-blue-50 text-slate-600"
+                        ? "bg-blue-100 text-blue-700 font-semibold"
+                        : "hover:bg-blue-50 text-slate-600"
                       }`}
                   >
                     {item.label}
@@ -598,7 +611,9 @@
           </div>
 
           {/* ===== CONTENT ===== */}
-          <div className="flex-1 overflow-auto p-3 md:p-6">{renderPage()}</div>
+          <div className="flex-1 overflow-auto p-3 md:p-6">
+            {renderPage()}
+          </div>
         </div>
       );
     }
