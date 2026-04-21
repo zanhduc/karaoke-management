@@ -134,6 +134,61 @@ function trimVal(val) {
   return val != null ? String(val).trim() : "";
 }
 
+function toSafeISOString(value, fallback) {
+  if (value === null || value === undefined || value === "") {
+    return fallback !== undefined ? fallback : "";
+  }
+
+  var date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) {
+    return fallback !== undefined ? fallback : "";
+  }
+
+  return date.toISOString();
+}
+
+function stringifyForClient(payload) {
+  return JSON.stringify(payload == null ? null : payload);
+}
+
+function parseJsonArraySafe(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  if (typeof value === "string") {
+    try {
+      var parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function toDateForSheet(value, fallbackDate) {
+  if (value === null || value === undefined || value === "") {
+    return fallbackDate !== undefined ? fallbackDate : "";
+  }
+  var d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return fallbackDate !== undefined ? fallbackDate : "";
+  return d;
+}
+
+function syncRoomStartTime(roomId, startTimeValue) {
+  if (!roomId) return;
+  var parsedStart = toDateForSheet(startTimeValue, new Date());
+  if (!parsedStart) return;
+
+  var roomSheet = getRoomSheet();
+  var roomData = roomSheet.getDataRange().getValues();
+  for (var r = 1; r < roomData.length; r++) {
+    if (String(roomData[r][ROOM_COL.ID - 1]) === String(roomId)) {
+      roomSheet.getRange(r + 1, ROOM_COL.START_TIME).setValue(parsedStart);
+      return;
+    }
+  }
+}
+
 function getSheet(sheetName, createIfNotExist) {
   var ss = getSpreadsheet();
   var sheet = ss.getSheetByName(sheetName);
@@ -210,6 +265,224 @@ function readAccountsFromSheet() {
   }
   return rows;
 }
+
+function updateOrderWithStaffSync(orderCode, updatedData) {
+  return runWithLockOrQueue_(
+    "UPDATE_ORDER_WITH_STAFF",
+    { orderCode: orderCode, updatedData: updatedData },
+    function () {
+      return updateOrderWithStaffSyncInternal_(orderCode, updatedData);
+    },
+  );
+}
+
+function updateOrderWithStaffSyncInternal_(orderCode, updatedData) {
+  if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
+
+  try {
+    var sheet = getOrderSheet();
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+        var roomId = data[i][ORDER_COL.ROOM_ID - 1];
+        var currentStaffs = parseJsonArraySafe(data[i][ORDER_COL.STAFFS - 1]);
+        var nextStaffs = parseJsonArraySafe(updatedData.staffs);
+
+        updateOrder(orderCode, updatedData);
+
+        var currentStaffIds = {};
+        for (var c = 0; c < currentStaffs.length; c++) {
+          if (currentStaffs[c] && currentStaffs[c].id) {
+            currentStaffIds[String(currentStaffs[c].id)] = true;
+          }
+        }
+
+        var nextStaffIds = {};
+        for (var n = 0; n < nextStaffs.length; n++) {
+          if (nextStaffs[n] && nextStaffs[n].id) {
+            nextStaffIds[String(nextStaffs[n].id)] = true;
+          }
+        }
+
+        for (var currentId in currentStaffIds) {
+          if (!nextStaffIds[currentId]) {
+            releaseStaff(currentId);
+          }
+        }
+
+        for (var nextId in nextStaffIds) {
+          if (!currentStaffIds[nextId]) {
+            assignStaffToRoom(nextId, roomId);
+          }
+        }
+
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw new Error("Không tìm thấy hoá đơn: " + orderCode);
+    }
+
+    return { success: true, message: "Cập nhật hoá đơn thành công" };
+  } catch (e) {
+    auditLog(
+      "Cập nhật hoá đơn + staff sync " + orderCode,
+      "FAIL",
+      e.message || e,
+    );
+    throw e;
+  }
+}
+
+/**
+ * Lấy danh sách tất cả tài khoản
+ */
+function getAllAccounts() {
+  var currentUser = getCurrentUser();
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
+    throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
+  }
+
+  var accounts = readAccountsFromSheet();
+  return accounts.map(function (acc) {
+    return {
+      id: acc.id,
+      username: acc.username,
+      role: acc.role,
+      name: acc.name,
+    };
+  });
+}
+
+/**
+ * Thêm tài khoản mới
+ */
+function addNewAccount(accountData) {
+  var currentUser = getCurrentUser();
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
+    throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
+  }
+
+  if (!accountData.username || !accountData.password) {
+    throw new Error("Tên đăng nhập và mật khẩu là bắt buộc.");
+  }
+
+  var accounts = readAccountsFromSheet();
+  for (var i = 0; i < accounts.length; i++) {
+    if (accounts[i].username === accountData.username) {
+      throw new Error("Tên đăng nhập đã tồn tại.");
+    }
+  }
+
+  try {
+    var sheet = getAccountSheet(true);
+    var id = "ACC" + new Date().getTime().toString(36).toUpperCase();
+
+    sheet.appendRow([
+      id,
+      accountData.username,
+      accountData.password,
+      accountData.role || "staff",
+      accountData.name || "",
+    ]);
+
+    auditLog("Thêm tài khoản mới: " + accountData.username, "SUCCESS", "");
+    return { success: true, message: "Thêm tài khoản thành công." };
+  } catch (e) {
+    auditLog(
+      "Lỗi thêm tài khoản: " + accountData.username,
+      "FAIL",
+      e.message || e,
+    );
+    throw e;
+  }
+}
+
+/**
+ * Đổi mật khẩu
+ */
+function changePasswordAdmin(username, newPassword) {
+  var currentUser = getCurrentUser();
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
+    throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
+  }
+
+  if (!username || !newPassword) {
+    throw new Error("Tên đăng nhập và mật khẩu mới là bắt buộc.");
+  }
+
+  try {
+    var sheet = getAccountSheet(true);
+    var data = sheet.getDataRange().getValues();
+    var found = false;
+
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][ACCOUNT_COL.USERNAME - 1]) === String(username)) {
+        sheet.getRange(i + 1, ACCOUNT_COL.PASSWORD).setValue(newPassword);
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      throw new Error("Không tìm thấy tài khoản.");
+    }
+
+    auditLog("Đổi mật khẩu cho tài khoản: " + username, "SUCCESS", "");
+    return { success: true, message: "Đổi mật khẩu thành công." };
+  } catch (e) {
+    auditLog("Lỗi đổi mật khẩu tài khoản: " + username, "FAIL", e.message || e);
+    throw e;
+  }
+}
+
+/**
+ * Xoá tài khoản
+ */
+function deleteAccountAdmin(username) {
+  var currentUser = getCurrentUser();
+  if (!currentUser.isLoggedIn || currentUser.role !== "admin") {
+    throw new Error("Không có quyền truy cập. Yêu cầu quyền admin.");
+  }
+
+  if (!username) {
+    throw new Error("Tên đăng nhập là bắt buộc.");
+  }
+
+  // Không cho phép tài khoản đang đăng nhập tự tự xoá chính nó (tránh lỗi ngớ ngẩn)
+  if (currentUser.username === username) {
+    throw new Error("Bạn không thể tự xoá tài khoản của chính mình!");
+  }
+
+  try {
+    var sheet = getAccountSheet(true);
+    var data = sheet.getDataRange().getValues();
+    var foundIndex = -1;
+
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][ACCOUNT_COL.USERNAME - 1]) === String(username)) {
+        foundIndex = i + 1;
+        break;
+      }
+    }
+
+    if (foundIndex === -1) {
+      throw new Error("Không tìm thấy tài khoản.");
+    }
+
+    sheet.deleteRow(foundIndex);
+    auditLog("Đã xoá tài khoản: " + username, "SUCCESS", "");
+    return { success: true, message: "Xoá tài khoản thành công." };
+  } catch (e) {
+    auditLog("Lỗi xoá tài khoản: " + username, "FAIL", e.message || e);
+    throw e;
+  }
+}
+
 /**
  * Đăng nhập - Kiểm tra tài khoản mật khẩu
  */
@@ -712,7 +985,7 @@ function setRoomCleaning(roomId) {
   if (!roomId) throw new Error("roomId không hợp lệ");
   updateRoomStatus(roomId, "cleaning");
 }
-function startRoom(roomId, orderId) {
+function startRoom(roomId, orderId, startAt) {
   if (!roomId) throw new Error("roomId không hợp lệ");
   if (!orderId) throw new Error("orderId không hợp lệ");
   try {
@@ -732,9 +1005,11 @@ function startRoom(roomId, orderId) {
           );
           throw new Error("Phòng đang được sử dụng!");
         }
-        sheet.getRange(i + 1, ROOM_COL.STATUS).setValue("occupied");
-        sheet.getRange(i + 1, ROOM_COL.START_TIME).setValue(new Date());
-        sheet.getRange(i + 1, ROOM_COL.CURRENT_ORDER_ID).setValue(orderId);
+        var startDate = toDateForSheet(startAt, new Date());
+        // Batch update thay vì 3 lần setValue
+        sheet
+          .getRange(i + 1, ROOM_COL.STATUS, 1, 3)
+          .setValues([["occupied", startDate, orderId]]);
         auditLog(
           "Phòng [START]: Mở phòng " + roomId + ", order " + orderId,
           "SUCCESS",
@@ -1133,7 +1408,18 @@ function generateOrderCode() {
  * - roomTotal = 0 (sẽ tính lúc thanh toán)
  * - staffs = không có hours (tính từ lúc add vào order)
  */
-function createOrder(orderData) {
+
+function createOrder(orderData, options) {
+  return runWithLockOrQueue_(
+    "CREATE_ORDER",
+    { orderData: orderData, options: options || {} },
+    function () {
+      return createOrderInternal_(orderData, options || {});
+    },
+  );
+}
+
+function createOrderInternal_(orderData) {
   if (!orderData || !orderData.roomId) {
     throw new Error("Thiếu thông tin phòng (roomId)");
   }
@@ -1149,15 +1435,15 @@ function createOrder(orderData) {
         `Hoá đơn phòng ${orderData.roomName || orderData.roomId}`,
       orderData.customerName || "Khách vãng lai",
       startTime,
-      "", // endTime - rỗng, sẽ set lúc thanh toán
-      "", // duration - rỗng, sẽ tính lúc thanh toán
+      "", // endTime
+      "", // duration
       orderCode,
       Number(orderData.serviceTotal) || 0,
-      0, // roomTotal = 0, sẽ tính lúc thanh toán
+      0, // roomTotal
       Number(orderData.discountCustomer) || 0,
       Number(orderData.adjustment) || 0,
       JSON.stringify(orderData.products || []),
-      JSON.stringify(orderData.staffs || []), // không có hours
+      JSON.stringify(orderData.staffs || []),
       orderData.roomId,
       Number(orderData.grandTotal) || 0,
       Number(orderData.bankPayment) || 0,
@@ -1170,7 +1456,9 @@ function createOrder(orderData) {
     getOrderSheet().appendRow(row);
 
     // Cập nhật trạng thái phòng
-    startRoom(orderData.roomId, orderCode);
+    startRoom(orderData.roomId, orderCode, startTime);
+    // ÉP BUỘC GHI DỮ LIỆU XUỐNG SHEET TRƯỚC KHI ĐỌC LẠI
+    SpreadsheetApp.flush();
 
     // Cập nhật nhân viên thành "đang bận"
     if (orderData.staffs && Array.isArray(orderData.staffs)) {
@@ -1179,7 +1467,6 @@ function createOrder(orderData) {
           try {
             assignStaffToRoom(staff.id, orderData.roomId);
           } catch (e) {
-            // Log lỗi nhưng không dừng tạo order
             auditLog(
               `Cập nhật nhân viên ${staff.id} thất bại`,
               "FAIL",
@@ -1197,10 +1484,14 @@ function createOrder(orderData) {
       "",
     );
 
+    // Đọc lại phòng sau khi đã flush để đảm bảo dữ liệu mới nhất
+    var updatedRoom = getRoomById(orderData.roomId);
+
     return {
       success: true,
       orderCode: orderCode,
       message: "Tạo đơn hàng thành công",
+      room: updatedRoom,
     };
   } catch (e) {
     auditLog(
@@ -1487,6 +1778,8 @@ function updateOrder(orderCode, updatedData) {
 
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
+        var roomId = data[i][ORDER_COL.ROOM_ID - 1];
+
         // Cập nhật các cột
         if (updatedData.products != null) {
           sheet
@@ -1505,6 +1798,44 @@ function updateOrder(orderCode, updatedData) {
                 ? updatedData.staffs
                 : JSON.stringify(updatedData.staffs),
             );
+        }
+        if (Object.prototype.hasOwnProperty.call(updatedData, "startTime")) {
+          sheet
+            .getRange(i + 1, ORDER_COL.START_TIME)
+            .setValue(toDateForSheet(updatedData.startTime, ""));
+          if (updatedData.startTime) {
+            syncRoomStartTime(roomId, updatedData.startTime);
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(updatedData, "endTime")) {
+          sheet
+            .getRange(i + 1, ORDER_COL.END_TIME)
+            .setValue(toDateForSheet(updatedData.endTime, ""));
+        }
+        if (updatedData.duration != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.DURATION)
+            .setValue(updatedData.duration);
+        }
+        if (updatedData.serviceTotal != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.SERVICE_TOTAL)
+            .setValue(updatedData.serviceTotal);
+        }
+        if (updatedData.roomTotal != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.ROOM_TOTAL)
+            .setValue(updatedData.roomTotal);
+        }
+        if (updatedData.adjustment != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.ADJUSTMENT)
+            .setValue(updatedData.adjustment);
+        }
+        if (updatedData.paymentStatus != null) {
+          sheet
+            .getRange(i + 1, ORDER_COL.PAYMENT_STATUS)
+            .setValue(updatedData.paymentStatus);
         }
         if (updatedData.note != null) {
           sheet.getRange(i + 1, ORDER_COL.NOTE).setValue(updatedData.note);
@@ -1550,7 +1881,18 @@ function updateOrder(orderCode, updatedData) {
  * - Cập nhật grandTotal
  * - Giải phóng nhân viên
  */
+
 function markOrderAsPaid(orderCode, paymentData) {
+  return runWithLockOrQueue_(
+    "MARK_ORDER_PAID",
+    { orderCode: orderCode, paymentData: paymentData },
+    function () {
+      return markOrderAsPaidInternal_(orderCode, paymentData);
+    },
+  );
+}
+
+function markOrderAsPaidInternal_(orderCode, paymentData) {
   if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
 
   try {
@@ -1565,8 +1907,19 @@ function markOrderAsPaid(orderCode, paymentData) {
 
     for (var i = 1; i < data.length; i++) {
       if (String(data[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)) {
-        startTime = new Date(data[i][ORDER_COL.START_TIME - 1]);
+        var inputStartTime =
+          paymentData && paymentData.startTime
+            ? paymentData.startTime
+            : data[i][ORDER_COL.START_TIME - 1];
+        startTime = toDateForSheet(inputStartTime, new Date());
+        if (!startTime || isNaN(startTime.getTime())) startTime = new Date();
         roomId = data[i][ORDER_COL.ROOM_ID - 1];
+        if (paymentData && paymentData.endTime) {
+          var customEndTime = toDateForSheet(paymentData.endTime, now);
+          if (customEndTime && !isNaN(customEndTime.getTime())) {
+            endTime = customEndTime;
+          }
+        }
 
         // Parse staffs
         var staffsData = data[i][ORDER_COL.STAFFS - 1];
@@ -1577,6 +1930,7 @@ function markOrderAsPaid(orderCode, paymentData) {
         } catch (e) {
           staffs = [];
         }
+        if (!Array.isArray(staffs)) staffs = [];
 
         // Tính duration (làm tròn lên theo giờ)
         var durationMs = endTime.getTime() - startTime.getTime();
@@ -1600,7 +1954,50 @@ function markOrderAsPaid(orderCode, paymentData) {
         var staffTotal = 0;
         if (staffs && Array.isArray(staffs)) {
           for (var k = 0; k < staffs.length; k++) {
-            staffTotal += (Number(staffs[k].price_per_hour) || 0) * duration;
+            var staffStart = startTime;
+            var staffEnd = endTime;
+            if (
+              staffs[k] &&
+              Array.isArray(staffs[k].sessions) &&
+              staffs[k].sessions.length > 0
+            ) {
+              var firstSession = staffs[k].sessions[0];
+              if (firstSession && firstSession.startTime) {
+                var parsedStaffStart = new Date(firstSession.startTime);
+                if (!isNaN(parsedStaffStart.getTime())) {
+                  staffStart = parsedStaffStart;
+                }
+              }
+              if (staffs[k].isLeft) {
+                var lastSession =
+                  staffs[k].sessions[staffs[k].sessions.length - 1];
+                if (lastSession && lastSession.endTime) {
+                  var parsedStaffEnd = new Date(lastSession.endTime);
+                  if (!isNaN(parsedStaffEnd.getTime())) {
+                    staffEnd = parsedStaffEnd;
+                  }
+                }
+              }
+            } else if (staffs[k] && staffs[k].startTime) {
+              var parsedLegacyStart = new Date(staffs[k].startTime);
+              if (!isNaN(parsedLegacyStart.getTime())) {
+                staffStart = parsedLegacyStart;
+              }
+            }
+            if (staffs[k] && staffs[k].endTime) {
+              var parsedLegacyEnd = new Date(staffs[k].endTime);
+              if (!isNaN(parsedLegacyEnd.getTime())) {
+                staffEnd = parsedLegacyEnd;
+              }
+            }
+
+            var staffDurationMs = staffEnd.getTime() - staffStart.getTime();
+            if (staffDurationMs < 0) staffDurationMs = 0;
+            var staffDurationMinutes = staffDurationMs / (1000 * 60);
+
+            staffTotal +=
+              ((Number(staffs[k].price_per_hour) || 0) / 60) *
+              staffDurationMinutes;
           }
         }
 
@@ -1638,6 +2035,9 @@ function markOrderAsPaid(orderCode, paymentData) {
         );
 
         // Cập nhật các cột
+        if (paymentData && paymentData.startTime) {
+          sheet.getRange(i + 1, ORDER_COL.START_TIME).setValue(startTime);
+        }
         sheet.getRange(i + 1, ORDER_COL.END_TIME).setValue(endTime);
         sheet.getRange(i + 1, ORDER_COL.DURATION).setValue(duration);
         sheet.getRange(i + 1, ORDER_COL.ROOM_TOTAL).setValue(roomTotal);
@@ -1656,6 +2056,9 @@ function markOrderAsPaid(orderCode, paymentData) {
         sheet
           .getRange(i + 1, ORDER_COL.PAYMENT_STATUS)
           .setValue("Đã thanh toán");
+        if (paymentData && paymentData.note != null) {
+          sheet.getRange(i + 1, ORDER_COL.NOTE).setValue(paymentData.note);
+        }
 
         auditLog(
           `Chốt thanh toán hoá đơn ${orderCode} - Duration: ${duration}h`,
@@ -1752,4 +2155,262 @@ function doGet(e) {
 
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+/**
+ * Mở lại Order đã thanh toán và gán lại Phòng / Tiếp viên
+ * @param {string} orderCode Mã hoá đơn cần mở lại
+ */
+function reopenOrderAndRoom(orderCode) {
+  if (!orderCode) throw new Error("Mã hoá đơn không hợp lệ");
+  try {
+    var orderSheet = getOrderSheet();
+    var orderData = orderSheet.getDataRange().getValues();
+    var foundOrder = false;
+    var roomId = null;
+    var startTime = null;
+    var staffsString = null;
+
+    // 1. Phục hồi trạng thái Order
+    for (var i = 1; i < orderData.length; i++) {
+      if (
+        String(orderData[i][ORDER_COL.ORDER_CODE - 1]) === String(orderCode)
+      ) {
+        orderSheet
+          .getRange(i + 1, ORDER_COL.PAYMENT_STATUS)
+          .setValue("Chưa thanh toán");
+        orderSheet.getRange(i + 1, ORDER_COL.END_TIME).clearContent();
+        orderSheet.getRange(i + 1, ORDER_COL.DURATION).clearContent();
+
+        roomId = orderData[i][ORDER_COL.ROOM_ID - 1];
+        startTime = orderData[i][ORDER_COL.START_TIME - 1];
+        staffsString = orderData[i][ORDER_COL.STAFFS - 1];
+        foundOrder = true;
+        break;
+      }
+    }
+
+    if (!foundOrder)
+      throw new Error("Không tìm thấy hoá đơn để mở lại: " + orderCode);
+
+    // 2. Phục hồi trạng thái Phòng
+    if (roomId) {
+      var roomSheet = getRoomSheet();
+      var roomData = roomSheet.getDataRange().getValues();
+      for (var j = 1; j < roomData.length; j++) {
+        if (String(roomData[j][ROOM_COL.ID - 1]) === String(roomId)) {
+          // Kiểm tra MỘT ORDER KHÁC
+          var currentStatus = roomData[j][ROOM_COL.STATUS - 1];
+          var currentOrderId = roomData[j][ROOM_COL.CURRENT_ORDER_ID - 1];
+
+          if (
+            currentStatus === "occupied" &&
+            currentOrderId &&
+            currentOrderId !== orderCode
+          ) {
+            throw new Error(
+              "Phòng đang bận bởi order khác (" +
+                currentOrderId +
+                ")! Không thể đẩy lại.",
+            );
+          }
+
+          roomSheet.getRange(j + 1, ROOM_COL.STATUS).setValue("occupied");
+          roomSheet
+            .getRange(j + 1, ROOM_COL.CURRENT_ORDER_ID)
+            .setValue(orderCode);
+          roomSheet.getRange(j + 1, ROOM_COL.START_TIME).setValue(startTime);
+          break;
+        }
+      }
+    }
+
+    // 3. Phục hồi trạng thái Tiếp viên
+    if (staffsString) {
+      var staffs = parseJsonArraySafe(staffsString);
+      for (var k = 0; k < staffs.length; k++) {
+        if (staffs[k].id) {
+          try {
+            assignStaffToRoom(staffs[k].id, roomId);
+          } catch (err) {
+            auditLog(
+              "Gán lại tiếp viên " + staffs[k].id + " thất bại",
+              "FAIL",
+              err.message || err,
+            );
+          }
+        }
+      }
+    }
+
+    auditLog("Mở lại hoá đơn " + orderCode + " để đổi trả", "SUCCESS", "");
+    return { success: true, message: "Đã mở lại phòng và hoá đơn thành công" };
+  } catch (e) {
+    auditLog("Mở lại hoá đơn " + orderCode, "FAIL", e.message || e);
+    throw e;
+  }
+}
+
+// ==================== QUEUE INFRASTRUCTURE ====================
+function ensureQueueSheet_() {
+  var ss = getSpreadsheet();
+  var sheet = ss.getSheetByName("QUEUE");
+  if (!sheet) {
+    sheet = ss.insertSheet("QUEUE");
+    sheet
+      .getRange(1, 1, 1, 7)
+      .setValues([
+        [
+          "createdAt",
+          "status",
+          "action",
+          "payload",
+          "result",
+          "error",
+          "updatedAt",
+        ],
+      ]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function ensureQueueTrigger_() {
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    var hasQueueTrigger = triggers.some(function (t) {
+      return t.getHandlerFunction && t.getHandlerFunction() === "processQueue";
+    });
+    if (!hasQueueTrigger) {
+      ScriptApp.newTrigger("processQueue").timeBased().everyMinutes(1).create();
+    }
+    return true;
+  } catch (e) {
+    Logger.log("WARN ensureQueueTrigger_: " + e.message);
+    return false;
+  }
+}
+
+function setupQueueInfrastructure() {
+  ensureQueueSheet_();
+  var ok = ensureQueueTrigger_();
+  return {
+    success: ok,
+    message: ok
+      ? "Queue đã sẵn sàng."
+      : "Không tạo được trigger. Hãy cấp quyền script.scriptapp và chạy lại.",
+  };
+}
+
+function enqueueOperation_(action, payload) {
+  var sheet = ensureQueueSheet_();
+  var now = new Date();
+  var row = [
+    now,
+    "PENDING",
+    action,
+    JSON.stringify(payload || {}),
+    "",
+    "",
+    now,
+  ];
+  var targetRow = sheet.getLastRow() + 1;
+  if (targetRow > sheet.getMaxRows()) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), targetRow - sheet.getMaxRows());
+  }
+  sheet.getRange(targetRow, 1, 1, row.length).setValues([row]);
+  ensureQueueTrigger_();
+  return targetRow;
+}
+
+function runWithLockOrQueue_(action, payload, fn) {
+  var lock = LockService.getDocumentLock();
+  var locked = false;
+  try {
+    lock.waitLock(5000);
+    locked = true;
+  } catch (e) {
+    var jobId = enqueueOperation_(action, payload);
+    return {
+      success: true,
+      queued: true,
+      jobId: jobId,
+      message: "Hệ thống đang bận, yêu cầu đã được đưa vào hàng đợi.",
+    };
+  }
+  try {
+    return fn();
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function processQueue() {
+  var lock = LockService.getDocumentLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = ensureQueueSheet_();
+    var data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return { success: true, processed: 0 };
+
+    var header = data[0];
+    var idxStatus = 1;
+    var idxAction = 2;
+    var idxPayload = 3;
+    var idxResult = 4;
+    var idxError = 5;
+    var idxUpdated = 6;
+
+    var processed = 0;
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      if (row[idxStatus] !== "PENDING") continue;
+
+      var action = row[idxAction];
+      var payload = {};
+      try {
+        payload = JSON.parse(row[idxPayload] || "{}");
+      } catch (e) {
+        payload = {};
+      }
+
+      try {
+        var result = dispatchQueueAction_(action, payload);
+        row[idxStatus] = "SUCCESS";
+        row[idxResult] = JSON.stringify(result || {});
+        row[idxError] = "";
+      } catch (err) {
+        row[idxStatus] = "FAILED";
+        row[idxError] = String(err && err.message ? err.message : err);
+      }
+      row[idxUpdated] = new Date();
+      processed++;
+    }
+
+    if (processed > 0) {
+      sheet
+        .getRange(2, 1, data.length - 1, header.length)
+        .setValues(data.slice(1));
+    }
+    return { success: true, processed: processed };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function dispatchQueueAction_(action, payload) {
+  var result = null;
+  if (action === "CREATE_ORDER") {
+    result = createOrderInternal_(payload.orderData, payload.options || {});
+  } else if (action === "UPDATE_ORDER_WITH_STAFF") {
+    result = updateOrderWithStaffSyncInternal_(
+      payload.orderCode,
+      payload.updatedData,
+    );
+  } else if (action === "MARK_ORDER_PAID") {
+    result = markOrderAsPaidInternal_(payload.orderCode, payload.paymentData);
+  } else {
+    throw new Error("Unknown queue action: " + action);
+  }
+  return result;
 }

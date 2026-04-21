@@ -11,7 +11,7 @@
             total: 10,
             available: 6,
             occupied: 3,
-            cleaning: 1
+            cleaning: 1,
           });
         }
         return new Promise((resolve, reject) => {
@@ -27,7 +27,7 @@
           return Promise.resolve({
             total: 15,
             available: 8,
-            busy: 7
+            busy: 7,
           });
         }
         return new Promise((resolve, reject) => {
@@ -60,14 +60,36 @@
       const loadData = async () => {
         setIsLoading(true);
         setError("");
+        const cached = readDashCache();
+
+        if (cached?.data) {
+          setRoomStats(cached.data.rooms || {});
+          setStaffStats(cached.data.staff || {});
+          setIsLoading(false);
+        } else {
+          setIsLoading(true);
+        }
+
         try {
-          const [rooms, staff] = await Promise.all([
+          // BỔ SUNG: Timeout 15s
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Load timeout")), 15000),
+          );
+
+          const fetchPromise = Promise.all([
             DashboardServer.getRoomStatistics(),
             DashboardServer.getStaffStatistics(),
           ]);
 
+          const [rooms, staff] = await Promise.race([
+            fetchPromise,
+            timeoutPromise,
+          ]);
+
           setRoomStats(rooms || {});
           setStaffStats(staff || {});
+          // 💾 Ép lưu đè cache
+          saveDashCache({ rooms, staff });
         } catch (e) {
           setError("Không tải được dữ liệu dashboard");
           console.error(e);
@@ -76,6 +98,14 @@
         }
       };
 
+      // BỔ SUNG: Chế độ Auto-Refresh ngầm mỗi 15 giây cho Dashboard để dữ liệu nhảy Realtime
+      useEffect(() => {
+        loadData();
+        const interval = setInterval(() => {
+          loadData();
+        }, 15000);
+        return () => clearInterval(interval);
+      }, []);
       useEffect(() => {
         loadData();
       }, []);
@@ -96,8 +126,12 @@
           <div className="max-w-7xl mx-auto">
             {/* Header */}
             <div className="mb-8">
-              <h1 className="text-4xl font-bold text-slate-900 mb-2">📊 Dashboard Quản Lý</h1>
-              <p className="text-slate-600">Thống kê phòng, tiếp viên và hoạt động (Chỉ admin)</p>
+              <h1 className="text-4xl font-bold text-slate-900 mb-2">
+                📊 Dashboard Quản Lý
+              </h1>
+              <p className="text-slate-600">
+                Thống kê phòng, tiếp viên và hoạt động (Chỉ admin)
+              </p>
             </div>
 
             {error && (
@@ -108,13 +142,17 @@
 
             {/* Room Statistics */}
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 mb-4">🏨 Thống Kê Phòng</h2>
+              <h2 className="text-2xl font-bold text-slate-900 mb-4">
+                🏨 Thống Kê Phòng
+              </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Total Rooms */}
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Tổng Phòng</p>
+                      <p className="text-slate-600 text-sm font-medium">
+                        Tổng Phòng
+                      </p>
                       <p className="text-3xl font-bold text-slate-900 mt-2">
                         {roomStats?.total || 0}
                       </p>
@@ -127,7 +165,9 @@
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-emerald-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Phòng Trống</p>
+                      <p className="text-slate-600 text-sm font-medium">
+                        Phòng Trống
+                      </p>
                       <p className="text-3xl font-bold text-emerald-600 mt-2">
                         {roomStats?.available || 0}
                       </p>
@@ -140,7 +180,9 @@
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-rose-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Đang Hoạt Động</p>
+                      <p className="text-slate-600 text-sm font-medium">
+                        Đang Hoạt Động
+                      </p>
                       <p className="text-3xl font-bold text-rose-600 mt-2">
                         {roomStats?.occupied || 0}
                       </p>
@@ -153,7 +195,9 @@
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-amber-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Đang Dọn</p>
+                      <p className="text-slate-600 text-sm font-medium">
+                        Đang Dọn
+                      </p>
                       <p className="text-3xl font-bold text-amber-600 mt-2">
                         {roomStats?.cleaning || 0}
                       </p>
@@ -166,49 +210,75 @@
               {/* Room Progress Bar */}
               {roomStats && roomStats.total > 0 && (
                 <div className="mt-6 bg-white rounded-lg shadow-md p-6">
-                  <h3 className="text-lg font-semibold text-slate-900 mb-4">Tỉ Lệ Sử Dụng Phòng</h3>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-4">
+                    Tỉ Lệ Sử Dụng Phòng
+                  </h3>
                   <div className="space-y-4">
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Phòng Trống</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          Phòng Trống
+                        </span>
                         <span className="text-sm font-bold text-emerald-600">
-                          {roomStats.available} / {roomStats.total} ({Math.round((roomStats.available / roomStats.total) * 100)}%)
+                          {roomStats.available} / {roomStats.total} (
+                          {Math.round(
+                            (roomStats.available / roomStats.total) * 100,
+                          )}
+                          %)
                         </span>
                       </div>
                       <div className="w-full bg-slate-200 rounded-full h-3">
                         <div
                           className="bg-emerald-500 h-3 rounded-full"
-                          style={{ width: `${(roomStats.available / roomStats.total) * 100}%` }}
+                          style={{
+                            width: `${(roomStats.available / roomStats.total) * 100}%`,
+                          }}
                         ></div>
                       </div>
                     </div>
 
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Đang Hoạt Động</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          Đang Hoạt Động
+                        </span>
                         <span className="text-sm font-bold text-rose-600">
-                          {roomStats.occupied} / {roomStats.total} ({Math.round((roomStats.occupied / roomStats.total) * 100)}%)
+                          {roomStats.occupied} / {roomStats.total} (
+                          {Math.round(
+                            (roomStats.occupied / roomStats.total) * 100,
+                          )}
+                          %)
                         </span>
                       </div>
                       <div className="w-full bg-slate-200 rounded-full h-3">
                         <div
                           className="bg-rose-500 h-3 rounded-full"
-                          style={{ width: `${(roomStats.occupied / roomStats.total) * 100}%` }}
+                          style={{
+                            width: `${(roomStats.occupied / roomStats.total) * 100}%`,
+                          }}
                         ></div>
                       </div>
                     </div>
 
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Đang Dọn</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          Đang Dọn
+                        </span>
                         <span className="text-sm font-bold text-amber-600">
-                          {roomStats.cleaning} / {roomStats.total} ({Math.round((roomStats.cleaning / roomStats.total) * 100)}%)
+                          {roomStats.cleaning} / {roomStats.total} (
+                          {Math.round(
+                            (roomStats.cleaning / roomStats.total) * 100,
+                          )}
+                          %)
                         </span>
                       </div>
                       <div className="w-full bg-slate-200 rounded-full h-3">
                         <div
                           className="bg-amber-500 h-3 rounded-full"
-                          style={{ width: `${(roomStats.cleaning / roomStats.total) * 100}%` }}
+                          style={{
+                            width: `${(roomStats.cleaning / roomStats.total) * 100}%`,
+                          }}
                         ></div>
                       </div>
                     </div>
@@ -219,13 +289,17 @@
 
             {/* Staff Statistics */}
             <div>
-              <h2 className="text-2xl font-bold text-slate-900 mb-4">👥 Thống Kê Tiếp Viên</h2>
+              <h2 className="text-2xl font-bold text-slate-900 mb-4">
+                👥 Thống Kê Tiếp Viên
+              </h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Total Staff */}
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-indigo-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Tổng Tiếp Viên</p>
+                      <p className="text-slate-600 text-sm font-medium">
+                        Tổng Tiếp Viên
+                      </p>
                       <p className="text-4xl font-bold text-slate-900 mt-2">
                         {staffStats?.total || 0}
                       </p>
@@ -238,12 +312,15 @@
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-emerald-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Sẵn Sàng</p>
+                      <p className="text-slate-600 text-sm font-medium">
+                        Sẵn Sàng
+                      </p>
                       <p className="text-4xl font-bold text-emerald-600 mt-2">
                         {staffStats?.available || 0}
                       </p>
                       <p className="text-xs text-slate-500 mt-2">
-                        {staffStats?.total > 0 && `${Math.round((staffStats.available / staffStats.total) * 100)}%`}
+                        {staffStats?.total > 0 &&
+                          `${Math.round((staffStats.available / staffStats.total) * 100)}%`}
                       </p>
                     </div>
                     <div className="text-5xl">🟢</div>
@@ -254,12 +331,15 @@
                 <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-rose-500">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="text-slate-600 text-sm font-medium">Đang Bận</p>
+                      <p className="text-slate-600 text-sm font-medium">
+                        Đang Bận
+                      </p>
                       <p className="text-4xl font-bold text-rose-600 mt-2">
                         {staffStats?.busy || 0}
                       </p>
                       <p className="text-xs text-slate-500 mt-2">
-                        {staffStats?.total > 0 && `${Math.round((staffStats.busy / staffStats.total) * 100)}%`}
+                        {staffStats?.total > 0 &&
+                          `${Math.round((staffStats.busy / staffStats.total) * 100)}%`}
                       </p>
                     </div>
                     <div className="text-5xl">🔴</div>
@@ -270,34 +350,52 @@
               {/* Staff Progress Bar */}
               {staffStats && staffStats.total > 0 && (
                 <div className="mt-6 bg-white rounded-lg shadow-md p-6">
-                  <h3 className="text-lg font-semibold text-slate-900 mb-4">Trạng Thái Tiếp Viên</h3>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-4">
+                    Trạng Thái Tiếp Viên
+                  </h3>
                   <div className="space-y-4">
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Sẵn Sàng Làm Việc</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          Sẵn Sàng Làm Việc
+                        </span>
                         <span className="text-sm font-bold text-emerald-600">
-                          {staffStats.available} / {staffStats.total} ({Math.round((staffStats.available / staffStats.total) * 100)}%)
+                          {staffStats.available} / {staffStats.total} (
+                          {Math.round(
+                            (staffStats.available / staffStats.total) * 100,
+                          )}
+                          %)
                         </span>
                       </div>
                       <div className="w-full bg-slate-200 rounded-full h-3">
                         <div
                           className="bg-emerald-500 h-3 rounded-full"
-                          style={{ width: `${(staffStats.available / staffStats.total) * 100}%` }}
+                          style={{
+                            width: `${(staffStats.available / staffStats.total) * 100}%`,
+                          }}
                         ></div>
                       </div>
                     </div>
 
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-slate-700">Đang Bận Rộn</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          Đang Bận Rộn
+                        </span>
                         <span className="text-sm font-bold text-rose-600">
-                          {staffStats.busy} / {staffStats.total} ({Math.round((staffStats.busy / staffStats.total) * 100)}%)
+                          {staffStats.busy} / {staffStats.total} (
+                          {Math.round(
+                            (staffStats.busy / staffStats.total) * 100,
+                          )}
+                          %)
                         </span>
                       </div>
                       <div className="w-full bg-slate-200 rounded-full h-3">
                         <div
                           className="bg-rose-500 h-3 rounded-full"
-                          style={{ width: `${(staffStats.busy / staffStats.total) * 100}%` }}
+                          style={{
+                            width: `${(staffStats.busy / staffStats.total) * 100}%`,
+                          }}
                         ></div>
                       </div>
                     </div>

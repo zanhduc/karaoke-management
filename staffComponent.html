@@ -107,16 +107,39 @@
       const load = async () => {
         setIsLoading(true);
         setError("");
+        const cached = readStaffCache();
+        if (cached?.data) {
+          // Hiện ngay từ cache
+          setStaffs(cached.data);
+          setIsLoading(false);
+        } else {
+          setIsLoading(true);
+        }
+
         try {
-          const data = await StaffServer.getStaffs();
-          setStaffs(Array.isArray(data) ? data : []);
+          // BỔ SUNG: Timeout 15s
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Load timeout")), 15000),
+          );
+
+          const data = await Promise.race([
+            StaffServer.getStaffs(),
+            timeoutPromise,
+          ]);
+
+          const normalized = Array.isArray(data) ? data : [];
+
+          // BỔ SUNG: Ép cập nhật UI và ghi đè LocalStorage
+          setStaffs(normalized);
+          saveStaffCache(normalized);
         } catch (e) {
-          setError(e?.message || "Không tải được danh sách tiếp viên.");
+          if (!cached?.data) {
+            setError(e?.message || "Không tải được danh sách tiếp viên.");
+          }
         } finally {
           setIsLoading(false);
         }
       };
-
       useEffect(() => {
         load();
       }, []);
@@ -351,7 +374,9 @@
                         <div className="text-sm text-slate-500">
                           {(s.phone ? `${s.phone} • ` : "") +
                             `Giá/giờ: ${Number(s.price_per_hour || 0).toLocaleString()}đ` +
-                            (s.current_room_id ? ` • Room: ${s.current_room_id}` : "")}
+                            (s.current_room_id
+                              ? ` • Room: ${s.current_room_id}`
+                              : "")}
                         </div>
                       </div>
 

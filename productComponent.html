@@ -80,15 +80,32 @@
         setIsLoading(true);
         setError("");
         try {
+<<<<<<< Updated upstream
           const data = await ProductServer.getProducts();
           setProducts(Array.isArray(data) ? data : []);
+=======
+          // BỔ SUNG: Timeout 15 giây chống treo mạng
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Load timeout")), 15000),
+          );
+
+          const data = await Promise.race([
+            ProductServer.getProducts(),
+            timeoutPromise,
+          ]);
+
+          const normalized = Array.isArray(data) ? data : [];
+
+          // BỔ SUNG: Bỏ điều kiện so sánh, luôn ép ghi đè dữ liệu mới nhất vào LocalStorage
+          setProducts(normalized);
+          saveProductCache(normalized);
+>>>>>>> Stashed changes
         } catch (e) {
           setError(e?.message || "Không tải được danh sách hàng hoá.");
         } finally {
           setIsLoading(false);
         }
       };
-
       useEffect(() => {
         load();
       }, []);
